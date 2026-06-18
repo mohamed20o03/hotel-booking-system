@@ -1,6 +1,9 @@
 package com.Abdelwahab.RoomBooking.model;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
+
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,31 +21,29 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "bookings")
-@Builder
-@Setter
+@Table(name = "maintenance_block")
 @Getter
+@Setter
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Booking {
+public class MaintenanceBlock {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "booking_id")
     private Long id;
-
-    @Column(name = "start_date", nullable = false)
-    private LocalDateTime startDate;
-
-    @Column(name = "end_date")
-    private LocalDateTime endDate;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", referencedColumnName = "id", nullable = false)
-    private User user;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "room_id", referencedColumnName = "id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Room room;
 
+    @Column(name = "start_date", nullable = false)
+    private LocalDate startDate;
+
+    @Column(name = "end_date", nullable = false)
+    private LocalDate endDate;
+
+    @Column(length = 255)
+    private String reason;
 }

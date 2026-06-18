@@ -19,29 +19,39 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "room")
+@Table(name = "addon")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Room {
+public class Addon {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
+
+    // Each hotel manages its own addons and pricing independently
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_type_id", referencedColumnName = "id", nullable = false)
+    @JoinColumn(name = "hotel_id", referencedColumnName = "id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
-    private RoomType roomType;
+    private Hotel hotel;
 
-    @Column(name = "room_number", nullable = false)
-    private int roomNumber;
+    @Column(nullable = false, length = 100)
+    private String name;
 
-    @Column(name = "floor", nullable = false)
-    private int floor;
-
+    // e.g., TRANSPORTATION, FOOD, SPA
     @Column(nullable = false, length = 50)
-    private String building;
+    private String category;
+
+    @Column(nullable = false, precision = 19, scale = 2)
+    private double price;
+
+    // e.g., PER_PERSON, PER_NIGHT, FLAT_RATE
+    @Column(name = "price_unit", nullable = false, length = 20)
+    private String priceUnit;
+
+    @Column
+    @Builder.Default
+    private Boolean available = true;
 }

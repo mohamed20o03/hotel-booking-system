@@ -1,5 +1,7 @@
 package com.Abdelwahab.RoomBooking.model;
 
+import java.math.BigDecimal;
+
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -19,29 +21,35 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "room")
+@Table(name = "room_type")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Room {
-
+public class RoomType {
+    
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_type_id", referencedColumnName = "id", nullable = false)
+    @JoinColumn(name = "hotel_id", referencedColumnName = "id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
-    private RoomType roomType;
+    private Hotel hotel;
 
-    @Column(name = "room_number", nullable = false)
-    private int roomNumber;
+    @Column(length = 100, nullable = false)
+    private String name;
 
-    @Column(name = "floor", nullable = false)
-    private int floor;
+    @Column(columnDefinition = "TEXT")
+    private String description;
 
-    @Column(nullable = false, length = 50)
-    private String building;
+    @Column(name = "max_occupancy", nullable = false)
+    private int maxOccupancy;
+
+    @Column(name = "total_rooms", nullable = false)
+    private int totalRooms;
+
+    @Column(name = "base_price_per_night", nullable = false, precision = 19, scale = 2)
+    private BigDecimal basePricePerNight;
 }
