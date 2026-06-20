@@ -8,17 +8,13 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * Request DTO for the Create Booking endpoint.
- * The guest passes their ID, the Rate Plan they chose, and their dates.
- * We do NOT accept roomId here — we auto-assign the first available room.
+ * Request DTO for the Search Availability endpoint.
+ * The guest specifies which hotel they want, and for what dates.
  */
-public record BookingRequestDTO(
+public record SearchRequestDTO(
 
-    @NotNull(message = "Guest ID cannot be empty")
-    Long guestId,
-
-    @NotNull(message = "Rate plan ID cannot be empty")
-    Long ratePlanId,
+    @NotNull(message = "Hotel ID cannot be empty")
+    Long hotelId,
 
     @NotNull(message = "Check-in date cannot be empty")
     @FutureOrPresent(message = "Check-in date cannot be in the past")
@@ -32,7 +28,7 @@ public record BookingRequestDTO(
     int numGuests
 
 ) {
-    public BookingRequestDTO {
+    public SearchRequestDTO {
         if (checkInDate != null && checkOutDate != null && !checkOutDate.isAfter(checkInDate)) {
             throw new IllegalArgumentException("Check-out date must be after check-in date");
         }

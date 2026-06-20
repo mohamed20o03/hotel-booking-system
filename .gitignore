@@ -1,33 +1,113 @@
-HELP.md
+# ===========================
+# COMPILED OUTPUT & BUILD
+# ===========================
 target/
-.mvn/wrapper/maven-wrapper.jar
+build/
+out/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# Keep source directories even if named "target" or "build"
 !**/src/main/**/target/
 !**/src/test/**/target/
+!**/src/main/**/build/
+!**/src/test/**/build/
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
 
-### IntelliJ IDEA ###
-.idea
+# ===========================
+# MAVEN
+# ===========================
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/.mvn/
+!**/src/test/**/.mvn/
+
+
+# ===========================
+# SPRING BOOT / APPLICATION CONFIG
+# ===========================
+# Never commit files with real credentials or secrets
+application-prod.yaml
+application-prod.properties
+application-local.yaml
+application-local.properties
+*.env
+.env
+.env.*
+
+
+# ===========================
+# LOGS
+# ===========================
+*.log
+logs/
+spring.log
+
+
+# ===========================
+# INTELLIJ IDEA
+# ===========================
+.idea/
 *.iws
 *.iml
 *.ipr
 
-### NetBeans ###
+
+# ===========================
+# VS CODE
+# ===========================
+.vscode/
+
+
+# ===========================
+# ECLIPSE / SPRING TOOL SUITE (STS)
+# ===========================
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache/
+
+
+# ===========================
+# NETBEANS
+# ===========================
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
-### VS Code ###
-.vscode/
+
+# ===========================
+# OPERATING SYSTEM FILES
+# ===========================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+
+# ===========================
+# MISC
+# ===========================
+HELP.md
+*.tmp
+*.swp
+*.orig
