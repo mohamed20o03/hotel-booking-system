@@ -1,7 +1,5 @@
 package com.Abdelwahab.RoomBooking.model;
 
-import java.math.BigDecimal;
-
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -50,6 +48,6 @@ public class RoomType {
     @Column(name = "total_rooms", nullable = false)
     private int totalRooms;
 
-    @Column(name = "base_price_per_night", nullable = false, precision = 19, scale = 2)
-    private BigDecimal basePricePerNight;
+    @Column(name = "base_price_per_night", nullable = false)
+    private double basePricePerNight;
 }

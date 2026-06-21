@@ -41,7 +41,7 @@ public class RatePlan {
     @Column(nullable = false, length = 50)
     private String name;
 
-    @Column(name = "price_per_night", nullable = false, precision = 19, scale = 2)
+    @Column(name = "price_per_night", nullable = false)
     private double pricePerNight;
 
     @Column(length = 3)

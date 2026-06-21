@@ -4,10 +4,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Response DTO returned after a successful booking.
- * Contains everything the guest needs for their confirmation page.
+ * Response DTO returned immediately after a successful reservation is created.
+ * Contains everything the guest needs for their confirmation page or email.
+ * Different from ReservationResponseDTO which is used for looking up existing reservations.
  */
-public record BookingResponseDTO(
+public record ReservationConfirmationDTO(
     Long reservationId,
     String confirmationNumber,
     String guestName,

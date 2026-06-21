@@ -65,7 +65,7 @@ public class Reservation {
     private int numGuests;
 
     // Frozen at booking time to protect against future price changes
-    @Column(name = "total_price", nullable = false, precision = 19, scale = 2)
+    @Column(name = "total_price", nullable = false)
     private double totalPrice;
 
     // e.g., CONFIRMED, CANCELLED, CHECKED_IN

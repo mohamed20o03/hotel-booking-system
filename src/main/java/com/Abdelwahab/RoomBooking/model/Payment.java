@@ -38,7 +38,7 @@ public class Payment {
     @OnDelete(action = OnDeleteAction.RESTRICT)
     private Reservation reservation;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column(nullable = false)
     private double amount;
 
     @Column(length = 3)

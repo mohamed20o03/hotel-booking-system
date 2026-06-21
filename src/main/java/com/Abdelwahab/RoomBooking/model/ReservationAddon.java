@@ -51,7 +51,7 @@ public class ReservationAddon {
 
     // Frozen historical price at the time of booking
     // Ensures invoices remain accurate even if the addon price changes later
-    @Column(name = "unit_price", nullable = false, precision = 19, scale = 2)
+    @Column(name = "unit_price", nullable = false)
     private double unitPrice;
 
     // total_price is NOT stored — always compute as (quantity * unitPrice) in code

@@ -44,7 +44,7 @@ public class Addon {
     @Column(nullable = false, length = 50)
     private String category;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column(nullable = false)
     private double price;
 
     // e.g., PER_PERSON, PER_NIGHT, FLAT_RATE

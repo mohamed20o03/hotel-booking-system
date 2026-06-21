@@ -3,9 +3,9 @@ package com.Abdelwahab.RoomBooking.dto;
 import java.time.LocalDate;
 
 /**
- * A price option (Rate Plan) shown to the guest during search.
+ * Response DTO representing a single rate plan option shown during availability search.
  */
-public record RatePlanDTO(
+public record RatePlanResponseDTO(
     Long ratePlanId,
     String name,
     double pricePerNight,
