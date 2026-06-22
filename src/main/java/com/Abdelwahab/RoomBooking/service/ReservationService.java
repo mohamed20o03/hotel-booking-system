@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -122,10 +123,11 @@ public class ReservationService {
     @Transactional
     public ReservationConfirmationDTO createBooking(ReservationRequestDTO request) {
 
-        // 1. Fetch Guest
-        Guest guest = guestRepository.findById(request.guestId())
+        // 1. Fetch Guest from the JWT token — no guestId needed in the request body
+        String currentEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        Guest guest = guestRepository.findByEmail(currentEmail)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Guest not found with ID: " + request.guestId()));
+                        "Authenticated guest not found: " + currentEmail));
 
         // 2. Fetch Rate Plan
         RatePlan ratePlan = ratePlanRepository.findById(request.ratePlanId())
@@ -213,14 +215,15 @@ public class ReservationService {
     }
 
     /**
-     * Returns all reservations for a given guest (newest first).
+     * Returns all reservations for the currently authenticated guest (newest first).
      */
     @Transactional(readOnly = true)
-    public List<ReservationResponseDTO> getReservationsByGuest(Long guestId) {
-        if (!guestRepository.existsById(guestId)) {
-            throw new ResourceNotFoundException("Guest not found with ID: " + guestId);
-        }
-        return reservationRepository.findByGuestIdOrderByCheckInDateDesc(guestId)
+    public List<ReservationResponseDTO> getMyReservations() {
+        String currentEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        Guest guest = guestRepository.findByEmail(currentEmail)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Authenticated guest not found: " + currentEmail));
+        return reservationRepository.findByGuestIdOrderByCheckInDateDesc(guest.getId())
                 .stream()
                 .map(this::toDTO)
                 .toList();

@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.Abdelwahab.RoomBooking.dto.ReservationConfirmationDTO;
@@ -44,11 +43,11 @@ public class ReservationController {
         return ResponseEntity.ok(reservation);
     }
 
-    // GET /api/reservations/guest/{guestId}
-    // Returns all reservations belonging to a specific guest, newest first
-    @GetMapping("/guest/{guestId}")
-    public ResponseEntity<List<ReservationResponseDTO>> getByGuest(@PathVariable Long guestId) {
-        List<ReservationResponseDTO> reservations = reservationService.getReservationsByGuest(guestId);
+    // GET /api/reservations/my-reservations
+    // Returns all reservations for the currently authenticated guest
+    @GetMapping("/my-reservations")
+    public ResponseEntity<List<ReservationResponseDTO>> getMyReservations() {
+        List<ReservationResponseDTO> reservations = reservationService.getMyReservations();
         return ResponseEntity.ok(reservations);
     }
 

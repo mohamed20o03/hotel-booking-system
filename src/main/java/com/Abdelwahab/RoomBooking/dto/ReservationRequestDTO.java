@@ -9,13 +9,10 @@ import jakarta.validation.constraints.NotNull;
 
 /**
  * Request DTO for the POST /api/reservations endpoint.
- * The guest provides their ID, the chosen rate plan, and their dates.
+ * The authenticated guest is identified from the JWT token — no guestId needed in the body.
  * Room assignment is handled automatically — guests do not pick a specific room.
  */
 public record ReservationRequestDTO(
-
-    @NotNull(message = "Guest ID cannot be empty")
-    Long guestId,
 
     @NotNull(message = "Rate plan ID cannot be empty")
     Long ratePlanId,
