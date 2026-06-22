@@ -12,11 +12,14 @@ import org.springframework.transaction.annotation.Transactional;
 import com.Abdelwahab.RoomBooking.exception.DuplicateResourceException;
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 @Service
 @RequiredArgsConstructor
 public class GuestService {
 
     private final GuestRepository guestRepository;
+    private final PasswordEncoder passwordEncoder;
     
     @Transactional
     public GuestResponseDTO registerGuest(GuestRequestDTO request) {
@@ -29,7 +32,7 @@ public class GuestService {
             .firstName(request.firstName())
             .lastName(request.lastName())
             .email(request.email())
-            .password(request.password()) // Plain text for now; hashing will be added with Spring Security in Phase 4
+            .password(passwordEncoder.encode(request.password()))
             .phone(request.phone())
             .nationality(request.nationality())
             .documentType(request.documentType())

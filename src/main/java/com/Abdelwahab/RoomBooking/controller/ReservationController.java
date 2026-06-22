@@ -52,13 +52,11 @@ public class ReservationController {
         return ResponseEntity.ok(reservations);
     }
 
-    // PATCH /api/reservations/{id}/cancel?guestId=...
-    // Cancels a confirmed reservation. guestId is required to verify ownership.
+    // PATCH /api/reservations/{id}/cancel
+    // Cancels a confirmed reservation.
     @PatchMapping("/{id}/cancel")
-    public ResponseEntity<Void> cancelReservation(
-            @PathVariable Long id,
-            @RequestParam Long guestId) {
-        reservationService.cancelReservation(id, guestId);
+    public ResponseEntity<Void> cancelReservation(@PathVariable Long id) {
+        reservationService.cancelReservation(id);
         return ResponseEntity.noContent().build();
     }
 

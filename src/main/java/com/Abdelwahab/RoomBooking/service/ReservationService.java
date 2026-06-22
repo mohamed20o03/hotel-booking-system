@@ -235,13 +235,16 @@ public class ReservationService {
      * If the rate plan is non-refundable, the status becomes CANCELLED_NON_REFUNDABLE.
      */
     @Transactional
-    public void cancelReservation(Long reservationId, Long guestId) {
+    public void cancelReservation(Long reservationId) {
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Reservation not found with ID: " + reservationId));
 
-        // Make sure the guest owns this reservation
-        if (!reservation.getGuest().getId().equals(guestId)) {
+        // Make sure the guest owns this reservation using SecurityContext
+        String currentUsername = org.springframework.security.core.context.SecurityContextHolder
+            .getContext().getAuthentication().getName();
+
+        if (!reservation.getGuest().getEmail().equals(currentUsername)) {
             throw new IllegalArgumentException("You do not have permission to cancel this reservation.");
         }
 

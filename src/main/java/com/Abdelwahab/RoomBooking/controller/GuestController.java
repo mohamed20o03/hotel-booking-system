@@ -23,13 +23,6 @@ public class GuestController {
 
     private final GuestService guestService;
 
-    // POST /api/guests/register
-    @PostMapping("/register")
-    public ResponseEntity<GuestResponseDTO> registerGuest(@Valid @RequestBody GuestRequestDTO request) {
-        GuestResponseDTO response = guestService.registerGuest(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
-
     // GET /api/guests/{id}
     @GetMapping("/{id}")
     public ResponseEntity<GuestResponseDTO> getGuestById(@PathVariable Long id) {
