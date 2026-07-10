@@ -1,5 +1,7 @@
 package com.Abdelwahab.RoomBooking.model;
 
+import java.math.BigDecimal;
+
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -48,6 +50,14 @@ public class RoomType {
     @Column(name = "total_rooms", nullable = false)
     private int totalRooms;
 
-    @Column(name = "base_price_per_night", nullable = false)
-    private double basePricePerNight;
+    // Guaranteed year-round fallback price. Every night that has no rate plan
+    // override is billed at this rate, so a booking can never lack a price.
+    @Column(name = "base_price_per_night", nullable = false, precision = 19, scale = 2)
+    private BigDecimal basePricePerNight;
+
+    // Currency of the base rate. All rate plans on this room type must match it,
+    // otherwise a day-by-day total would silently sum across currencies.
+    @Column(length = 3, nullable = false)
+    @Builder.Default
+    private String currency = "EGP";
 }

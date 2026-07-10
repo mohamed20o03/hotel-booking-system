@@ -1,5 +1,6 @@
 package com.Abdelwahab.RoomBooking.model;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import org.hibernate.annotations.OnDelete;
@@ -51,8 +52,8 @@ public class ReservationAddon {
 
     // Frozen historical price at the time of booking
     // Ensures invoices remain accurate even if the addon price changes later
-    @Column(name = "unit_price", nullable = false)
-    private double unitPrice;
+    @Column(name = "unit_price", nullable = false, precision = 19, scale = 2)
+    private BigDecimal unitPrice;
 
     // total_price is NOT stored — always compute as (quantity * unitPrice) in code
     // Storing computed values violates 3NF

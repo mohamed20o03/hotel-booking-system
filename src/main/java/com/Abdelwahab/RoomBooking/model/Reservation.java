@@ -1,19 +1,26 @@
 package com.Abdelwahab.RoomBooking.model;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -64,13 +71,21 @@ public class Reservation {
     @Column(name = "num_guests", nullable = false)
     private int numGuests;
 
-    // Frozen at booking time to protect against future price changes
-    @Column(name = "total_price", nullable = false)
-    private double totalPrice;
+    // Frozen at booking time to protect against future price changes.
+    // This is the sum of every ReservationNight.rateAmount below.
+    @Column(name = "total_price", nullable = false, precision = 19, scale = 2)
+    private BigDecimal totalPrice;
 
-    // e.g., CONFIRMED, CANCELLED, CHECKED_IN
+    // Lifecycle state — stored as its readable name, not an ordinal.
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private String status;
+    private ReservationStatus status;
+
+    // The frozen per-night price breakdown (day-by-day billing).
+    // Cascade + orphanRemoval: nights are owned entirely by their reservation.
+    @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<ReservationNight> nights = new ArrayList<>();
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

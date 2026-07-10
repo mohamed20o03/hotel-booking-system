@@ -37,6 +37,7 @@ CREATE TABLE room_type (
     max_occupancy        INT             NOT NULL,
     total_rooms          INT             NOT NULL,
     base_price_per_night DECIMAL(19, 2)  NOT NULL,
+    currency             VARCHAR(3)      NOT NULL DEFAULT 'EGP',
     FOREIGN KEY (hotel_id) REFERENCES hotel(id) ON DELETE CASCADE,
     UNIQUE (hotel_id, name)
 );
@@ -62,21 +63,35 @@ CREATE TABLE room (
 
 -- -------------------------------------------------------------
 -- TABLE: rate_plan
--- Defines pricing rules for a specific room type within a date range.
--- Multiple rate plans can exist for the same room type (e.g., seasonal pricing).
+-- A bookable product/policy for a room type. It carries the guest-facing
+-- policies (refundable, breakfast, minimum stay) and a currency — but NOT a
+-- price. Per-night prices live in rate_plan_rate as sparse date overrides.
 -- -------------------------------------------------------------
 CREATE TABLE rate_plan (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     room_type_id        BIGINT          NOT NULL,
     name                VARCHAR(50)     NOT NULL,
-    price_per_night     DECIMAL(19, 2)  NOT NULL,
     currency            VARCHAR(3)      DEFAULT 'EGP',
-    valid_from          DATE            NOT NULL,
-    valid_to            DATE            NOT NULL,
     min_stay_nights     INT             DEFAULT 1,
     breakfast_included  BOOLEAN         DEFAULT FALSE,
     is_refundable       BOOLEAN         DEFAULT TRUE,
     FOREIGN KEY (room_type_id) REFERENCES room_type(id) ON DELETE CASCADE
+);
+
+
+-- -------------------------------------------------------------
+-- TABLE: rate_plan_rate
+-- A price override for a rate plan on a single date. Sparse: only dates whose
+-- price differs from the room type's base rate need a row. Any date without a
+-- row is billed at room_type.base_price_per_night during pricing.
+-- -------------------------------------------------------------
+CREATE TABLE rate_plan_rate (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    rate_plan_id BIGINT          NOT NULL,
+    date         DATE            NOT NULL,
+    price        DECIMAL(19, 2)  NOT NULL,
+    FOREIGN KEY (rate_plan_id) REFERENCES rate_plan(id) ON DELETE CASCADE,
+    UNIQUE (rate_plan_id, date)
 );
 
 
@@ -141,6 +156,24 @@ CREATE TABLE reservation (
     FOREIGN KEY (guest_id)          REFERENCES guest(id)  ON DELETE RESTRICT,
     FOREIGN KEY (rate_plan_id)      REFERENCES rate_plan(id) ON DELETE RESTRICT,
     FOREIGN KEY (assigned_room_id)  REFERENCES room(id)   ON DELETE SET NULL
+);
+
+
+-- -------------------------------------------------------------
+-- TABLE: reservation_night
+-- The frozen day-by-day price breakdown of a reservation. One row per night in
+-- the half-open stay [check_in, check_out). The sum of rate_amount equals
+-- reservation.total_price. source records whether the night was priced from a
+-- rate plan override (PLAN) or the room type's base rate (BASE).
+-- -------------------------------------------------------------
+CREATE TABLE reservation_night (
+    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    reservation_id BIGINT          NOT NULL,
+    date           DATE            NOT NULL,
+    rate_amount    DECIMAL(19, 2)  NOT NULL,
+    source         VARCHAR(10)     NOT NULL,   -- PLAN | BASE
+    FOREIGN KEY (reservation_id) REFERENCES reservation(id) ON DELETE CASCADE,
+    UNIQUE (reservation_id, date)
 );
 
 

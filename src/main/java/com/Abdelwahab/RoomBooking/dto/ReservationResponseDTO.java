@@ -1,12 +1,13 @@
 package com.Abdelwahab.RoomBooking.dto;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
  * Response DTO for looking up an existing reservation.
  * Used by the GET /api/reservations/{confirmationNumber}
- * and GET /api/reservations/guest/{guestId} endpoints.
+ * and GET /api/reservations/my-reservations endpoints.
  *
  * Never exposes raw JPA entities to the client.
  */
@@ -25,14 +26,14 @@ public record ReservationResponseDTO(
 
     // Rate plan info
     String ratePlanName,
-    double pricePerNight,
     String currency,
 
     // Stay info
     LocalDate checkInDate,
     LocalDate checkOutDate,
     int numGuests,
-    double totalPrice,
+    int nights,
+    BigDecimal totalPrice,
 
     LocalDateTime createdAt
 ) {}

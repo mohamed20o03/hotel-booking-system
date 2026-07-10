@@ -1,12 +1,14 @@
 package com.Abdelwahab.RoomBooking.dto;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Response DTO returned immediately after a successful reservation is created.
- * Contains everything the guest needs for their confirmation page or email.
- * Different from ReservationResponseDTO which is used for looking up existing reservations.
+ * Contains everything the guest needs for their confirmation page or email,
+ * including the day-by-day price breakdown that produced the total.
  */
 public record ReservationConfirmationDTO(
     Long reservationId,
@@ -17,8 +19,10 @@ public record ReservationConfirmationDTO(
     LocalDate checkInDate,
     LocalDate checkOutDate,
     int numGuests,
-    double totalPrice,
+    int nights,
+    BigDecimal totalPrice,
     String currency,
     String status,
+    List<NightlyPriceDTO> nightlyBreakdown,
     LocalDateTime createdAt
 ) {}

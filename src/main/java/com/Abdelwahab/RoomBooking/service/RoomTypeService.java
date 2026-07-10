@@ -38,7 +38,8 @@ public class RoomTypeService {
                 roomType.getDescription(),
                 roomType.getMaxOccupancy(),
                 roomType.getTotalRooms(),
-                roomType.getBasePricePerNight()
+                roomType.getBasePricePerNight(),
+                roomType.getCurrency()
         );
     }
 }

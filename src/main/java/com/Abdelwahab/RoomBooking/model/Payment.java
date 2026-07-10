@@ -1,5 +1,6 @@
 package com.Abdelwahab.RoomBooking.model;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import org.hibernate.annotations.OnDelete;
@@ -38,8 +39,8 @@ public class Payment {
     @OnDelete(action = OnDeleteAction.RESTRICT)
     private Reservation reservation;
 
-    @Column(nullable = false)
-    private double amount;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal amount;
 
     @Column(length = 3)
     @Builder.Default

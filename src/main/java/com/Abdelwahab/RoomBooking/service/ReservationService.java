@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.Abdelwahab.RoomBooking.dto.AvailabilityResponseDTO;
+import com.Abdelwahab.RoomBooking.dto.NightlyPriceDTO;
 import com.Abdelwahab.RoomBooking.dto.RatePlanResponseDTO;
 import com.Abdelwahab.RoomBooking.dto.ReservationConfirmationDTO;
 import com.Abdelwahab.RoomBooking.dto.ReservationRequestDTO;
@@ -20,7 +21,10 @@ import com.Abdelwahab.RoomBooking.exception.NoAvailabilityException;
 import com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException;
 import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.model.RatePlan;
+import com.Abdelwahab.RoomBooking.model.RateSource;
 import com.Abdelwahab.RoomBooking.model.Reservation;
+import com.Abdelwahab.RoomBooking.model.ReservationNight;
+import com.Abdelwahab.RoomBooking.model.ReservationStatus;
 import com.Abdelwahab.RoomBooking.model.Room;
 import com.Abdelwahab.RoomBooking.model.RoomType;
 import com.Abdelwahab.RoomBooking.repository.GuestRepository;
@@ -40,18 +44,20 @@ public class ReservationService {
     private final RatePlanRepository ratePlanRepository;
     private final GuestRepository guestRepository;
     private final ReservationRepository reservationRepository;
+    private final PricingService pricingService;
 
     // ─────────────────────────────────────────────────────────────
     // STEP 1: SEARCH — Guest looks for available options
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Returns only the room types that satisfy BOTH conditions:
-     *   1. At least one physical room is free for the requested dates.
-     *   2. At least one active Rate Plan (price) exists for those dates.
+     * Returns every room type that has at least one physical room free for the
+     * requested dates, each paired with its rate plans priced day-by-day for
+     * those exact dates.
      *
-     * This ensures we never show a room that has no price,
-     * and never show a price for a fully booked room.
+     * The base rate guarantees every night has a price, so a room type is shown
+     * whenever it is physically available — a stay no longer has to fit inside a
+     * single rate plan's date window.
      */
     @Transactional(readOnly = true)
     public List<AvailabilityResponseDTO> searchAvailableOptions(
@@ -68,30 +74,27 @@ public class ReservationService {
             // Skip room types that can't accommodate the requested party size
             if (type.getMaxOccupancy() < numGuests) continue;
 
-            // 1. Check physical inventory
+            // Check physical inventory for the whole stay
             List<Room> availableRooms = roomRepository.findAvailableRooms(
                     type.getId(), checkInDate, checkOutDate);
 
             if (availableRooms.isEmpty()) continue; // Nothing physically available
 
-            // 2. Check price availability (Rate Plans)
-            List<RatePlan> ratePlans = ratePlanRepository.findOverlappingRatePlans(
-                    type.getId(), checkInDate, checkOutDate);
-
-            if (ratePlans.isEmpty()) continue; // No active pricing found
-
-            // 3. Build the DTO — this room type is valid to show to the guest
-            List<RatePlanResponseDTO> ratePlanDTOs = ratePlans.stream()
-                    .map(rp -> new RatePlanResponseDTO(
-                            rp.getId(),
-                            rp.getName(),
-                            rp.getPricePerNight(),
-                            rp.getCurrency(),
-                            rp.getValidFrom(),
-                            rp.getValidTo(),
-                            rp.getMinStayNights(),
-                            rp.getBreakfastIncluded(),
-                            rp.getIsRefundable()))
+            // Price every rate plan of this type for the requested dates
+            List<RatePlanResponseDTO> ratePlanDTOs = ratePlanRepository.findByRoomTypeId(type.getId())
+                    .stream()
+                    .map(rp -> {
+                        var quote = pricingService.quote(type, rp, checkInDate, checkOutDate);
+                        return new RatePlanResponseDTO(
+                                rp.getId(),
+                                rp.getName(),
+                                rp.getCurrency(),
+                                rp.getMinStayNights(),
+                                rp.getBreakfastIncluded(),
+                                rp.getIsRefundable(),
+                                quote.nightCount(),
+                                quote.total());
+                    })
                     .toList();
 
             results.add(new AvailabilityResponseDTO(
@@ -101,6 +104,7 @@ public class ReservationService {
                     type.getMaxOccupancy(),
                     availableRooms.size(),
                     type.getBasePricePerNight(),
+                    type.getCurrency(),
                     ratePlanDTOs));
         }
 
@@ -112,61 +116,64 @@ public class ReservationService {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Creates a confirmed reservation. The flow is:
-     *   1. Validate guest and rate plan exist.
-     *   2. Validate the stay meets the rate plan's minimum night requirement.
-     *   3. Double-check inventory (race condition protection).
-     *   4. Auto-assign the first available physical room.
-     *   5. Calculate the total price.
-     *   6. Save the reservation and return a confirmation.
+     * Creates a confirmed reservation under a single chosen rate plan. The flow is:
+     *   1. Resolve the authenticated guest and the chosen rate plan (+ its room type).
+     *   2. Enforce the plan's minimum-stay policy.
+     *   3. Confirm the room type is physically available for the stay.
+     *   4. Price the stay day-by-day (plan overrides + base-rate fallback).
+     *   5. Persist the reservation with its frozen per-night breakdown.
+     *
+     * NOTE (Phase 2): a physical room is still assigned here to keep the current
+     * availability query working. Phase 2 replaces this with count-based room-type
+     * inventory + a pessimistic lock, and assigns the physical room at check-in.
      */
     @Transactional
     public ReservationConfirmationDTO createBooking(ReservationRequestDTO request) {
 
-        // 1. Fetch Guest from the JWT token — no guestId needed in the request body
+        // 1. Guest from the JWT — no guestId in the request body
         String currentEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         Guest guest = guestRepository.findByEmail(currentEmail)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Authenticated guest not found: " + currentEmail));
 
-        // 2. Fetch Rate Plan
+        // 2. Chosen rate plan drives both policy and pricing; room type derives from it
         RatePlan ratePlan = ratePlanRepository.findById(request.ratePlanId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Rate plan not found with ID: " + request.ratePlanId()));
+        RoomType roomType = ratePlan.getRoomType();
 
         LocalDate checkIn = request.checkInDate();
         LocalDate checkOut = request.checkOutDate();
         long nights = ChronoUnit.DAYS.between(checkIn, checkOut);
 
-        // 3. Validate minimum stay requirement of the chosen rate plan
+        // 3. Party size must fit the room type
+        if (roomType.getMaxOccupancy() < request.numGuests()) {
+            throw new IllegalArgumentException(String.format(
+                    "Room type '%s' holds at most %d guests, but %d were requested.",
+                    roomType.getName(), roomType.getMaxOccupancy(), request.numGuests()));
+        }
+
+        // 4. Minimum-stay policy of the chosen plan
         if (nights < ratePlan.getMinStayNights()) {
             throw new IllegalArgumentException(String.format(
                     "The '%s' rate plan requires a minimum stay of %d nights, but you requested %d.",
                     ratePlan.getName(), ratePlan.getMinStayNights(), nights));
         }
 
-        // 4. Validate rate plan is still active for requested dates
-        if (checkIn.isBefore(ratePlan.getValidFrom()) || checkOut.isAfter(ratePlan.getValidTo())) {
-            throw new NoAvailabilityException(
-                    "The selected rate plan is not valid for the requested dates.");
-        }
-
-        // 5. Double-check physical room availability (protects against race conditions)
+        // 5. Physical availability for the whole stay (race-safe inventory is Phase 2)
         List<Room> availableRooms = roomRepository.findAvailableRooms(
-                ratePlan.getRoomType().getId(), checkIn, checkOut);
+                roomType.getId(), checkIn, checkOut);
 
         if (availableRooms.isEmpty()) {
             throw new NoAvailabilityException(
                     "Sorry, no rooms are available for the selected room type and dates. Please try different dates.");
         }
 
-        // 6. Auto-assign the first available room
+        // 6. Price the stay day-by-day
+        PricingService.PriceQuote quote = pricingService.quote(roomType, ratePlan, checkIn, checkOut);
+
+        // 7. Build the reservation shell (Phase 2 will drop booking-time assignment)
         Room assignedRoom = availableRooms.get(0);
-
-        // 7. Calculate total price (price per night * number of nights)
-        double totalPrice = ratePlan.getPricePerNight() * (double) nights;
-
-        // 8. Build and save Reservation
         Reservation reservation = Reservation.builder()
                 .guest(guest)
                 .ratePlan(ratePlan)
@@ -175,26 +182,38 @@ public class ReservationService {
                 .checkInDate(checkIn)
                 .checkOutDate(checkOut)
                 .numGuests(request.numGuests())
-                .totalPrice(totalPrice)
-                .status("CONFIRMED")
+                .totalPrice(quote.total())
+                .status(ReservationStatus.CONFIRMED)
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        reservation = reservationRepository.save(reservation);
+        // 8. Attach the frozen per-night breakdown
+        for (PricingService.NightlyPrice np : quote.nights()) {
+            reservation.getNights().add(ReservationNight.builder()
+                    .reservation(reservation)
+                    .date(np.date())
+                    .rateAmount(np.amount())
+                    .source(np.source())
+                    .build());
+        }
 
-        // 9. Return a rich confirmation response
+        reservation = reservationRepository.save(reservation); // cascades nights
+
+        // 9. Rich confirmation with the breakdown
         return new ReservationConfirmationDTO(
                 reservation.getId(),
                 reservation.getConfirmationNumber(),
                 guest.getFirstName() + " " + guest.getLastName(),
-                ratePlan.getRoomType().getName(),
+                roomType.getName(),
                 assignedRoom.getId(),
                 checkIn,
                 checkOut,
                 request.numGuests(),
-                totalPrice,
-                ratePlan.getCurrency(),
-                reservation.getStatus(),
+                quote.nightCount(),
+                quote.total(),
+                quote.currency(),
+                reservation.getStatus().name(),
+                toNightlyDTOs(reservation),
                 reservation.getCreatedAt());
     }
 
@@ -235,7 +254,9 @@ public class ReservationService {
 
     /**
      * Cancels a reservation. Only CONFIRMED reservations can be cancelled.
-     * If the rate plan is non-refundable, the status becomes CANCELLED_NON_REFUNDABLE.
+     * Refundability is a property of the rate plan, not the status, so the status
+     * simply becomes CANCELLED — which is exactly what the availability query
+     * treats as "room freed".
      */
     @Transactional
     public void cancelReservation(Long reservationId) {
@@ -243,25 +264,18 @@ public class ReservationService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Reservation not found with ID: " + reservationId));
 
-        // Make sure the guest owns this reservation using SecurityContext
-        String currentUsername = org.springframework.security.core.context.SecurityContextHolder
-            .getContext().getAuthentication().getName();
-
+        // Ensure the authenticated guest owns this reservation
+        String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
         if (!reservation.getGuest().getEmail().equals(currentUsername)) {
             throw new IllegalArgumentException("You do not have permission to cancel this reservation.");
         }
 
-        if (!"CONFIRMED".equals(reservation.getStatus())) {
+        if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
             throw new IllegalArgumentException(
                     "Only CONFIRMED reservations can be cancelled. Current status: " + reservation.getStatus());
         }
 
-        // Determine correct cancellation status based on rate plan refundability
-        String cancelledStatus = Boolean.TRUE.equals(reservation.getRatePlan().getIsRefundable())
-                ? "CANCELLED_REFUNDABLE"
-                : "CANCELLED_NON_REFUNDABLE";
-
-        reservation.setStatus(cancelledStatus);
+        reservation.setStatus(ReservationStatus.CANCELLED);
         reservationRepository.save(reservation);
     }
 
@@ -287,23 +301,38 @@ public class ReservationService {
         Guest guest = reservation.getGuest();
         RatePlan ratePlan = reservation.getRatePlan();
         Room assignedRoom = reservation.getAssignedRoom();
+        int nights = (int) ChronoUnit.DAYS.between(
+                reservation.getCheckInDate(), reservation.getCheckOutDate());
 
         return new ReservationResponseDTO(
                 reservation.getId(),
                 reservation.getConfirmationNumber(),
-                reservation.getStatus(),
+                reservation.getStatus().name(),
                 guest.getId(),
                 guest.getFirstName() + " " + guest.getLastName(),
                 ratePlan.getRoomType().getName(),
                 assignedRoom != null ? assignedRoom.getId() : null,
                 ratePlan.getName(),
-                ratePlan.getPricePerNight(),
                 ratePlan.getCurrency(),
                 reservation.getCheckInDate(),
                 reservation.getCheckOutDate(),
                 reservation.getNumGuests(),
+                nights,
                 reservation.getTotalPrice(),
                 reservation.getCreatedAt()
         );
+    }
+
+    /**
+     * Maps a reservation's frozen nights to their client-facing breakdown DTOs.
+     */
+    private List<NightlyPriceDTO> toNightlyDTOs(Reservation reservation) {
+        return reservation.getNights().stream()
+                .sorted((a, b) -> a.getDate().compareTo(b.getDate()))
+                .map(n -> new NightlyPriceDTO(
+                        n.getDate(),
+                        n.getRateAmount(),
+                        n.getSource() == RateSource.PLAN ? "PLAN" : "BASE"))
+                .toList();
     }
 }

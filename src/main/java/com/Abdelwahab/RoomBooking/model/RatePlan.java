@@ -1,7 +1,5 @@
 package com.Abdelwahab.RoomBooking.model;
 
-import java.time.LocalDate;
-
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -20,6 +18,15 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * A bookable product/policy container for a room type — NOT a price by itself.
+ *
+ * A rate plan bundles the guest-facing policies (refundable? breakfast? minimum
+ * stay?) and a currency. Its actual per-night prices live in RatePlanRate as
+ * sparse date overrides; any date without an override is billed at the room
+ * type's base rate. This separation is what lets a stay span dates that no
+ * single plan fully covers.
+ */
 @Entity
 @Table(name = "rate_plan")
 @Getter
@@ -41,18 +48,10 @@ public class RatePlan {
     @Column(nullable = false, length = 50)
     private String name;
 
-    @Column(name = "price_per_night", nullable = false)
-    private double pricePerNight;
-
+    // Must match the room type's currency so day-by-day totals stay single-currency.
     @Column(length = 3)
     @Builder.Default
     private String currency = "EGP";
-
-    @Column(name = "valid_from", nullable = false)
-    private LocalDate validFrom;
-
-    @Column(name = "valid_to", nullable = false)
-    private LocalDate validTo;
 
     @Column(name = "min_stay_nights")
     @Builder.Default

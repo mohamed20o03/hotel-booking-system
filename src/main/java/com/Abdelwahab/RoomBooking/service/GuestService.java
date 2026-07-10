@@ -1,18 +1,16 @@
-package com.Abdelwahab.RoomBooking.service;
+    package com.Abdelwahab.RoomBooking.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-// registerGuest(GuestRequestDTO) → save guest, return response DTO
+import org.springframework.transaction.annotation.Transactional;
 
 import com.Abdelwahab.RoomBooking.dto.GuestRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.GuestResponseDTO;
+import com.Abdelwahab.RoomBooking.exception.DuplicateResourceException;
 import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.repository.GuestRepository;
 
-import org.springframework.transaction.annotation.Transactional;
-import com.Abdelwahab.RoomBooking.exception.DuplicateResourceException;
 import lombok.RequiredArgsConstructor;
-
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Service
 @RequiredArgsConstructor

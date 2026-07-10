@@ -1,5 +1,7 @@
 package com.Abdelwahab.RoomBooking.model;
 
+import java.math.BigDecimal;
+
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -44,8 +46,8 @@ public class Addon {
     @Column(nullable = false, length = 50)
     private String category;
 
-    @Column(nullable = false)
-    private double price;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal price;
 
     // e.g., PER_PERSON, PER_NIGHT, FLAT_RATE
     @Column(name = "price_unit", nullable = false, length = 20)
