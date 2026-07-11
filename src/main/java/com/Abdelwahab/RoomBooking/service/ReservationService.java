@@ -45,19 +45,20 @@ public class ReservationService {
     private final GuestRepository guestRepository;
     private final ReservationRepository reservationRepository;
     private final PricingService pricingService;
+    private final InventoryService inventoryService;
 
     // ─────────────────────────────────────────────────────────────
     // STEP 1: SEARCH — Guest looks for available options
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Returns every room type that has at least one physical room free for the
-     * requested dates, each paired with its rate plans priced day-by-day for
-     * those exact dates.
+     * Returns every room type that still has allotment for the requested dates,
+     * each paired with its rate plans priced day-by-day for those exact dates.
      *
-     * The base rate guarantees every night has a price, so a room type is shown
-     * whenever it is physically available — a stay no longer has to fit inside a
-     * single rate plan's date window.
+     * Availability is now decided by the room-type inventory calendar (count per
+     * night), not by pinning a physical room. The base rate guarantees every
+     * night has a price, so a stay no longer has to fit inside a single rate
+     * plan's date window.
      */
     @Transactional(readOnly = true)
     public List<AvailabilityResponseDTO> searchAvailableOptions(
@@ -74,11 +75,11 @@ public class ReservationService {
             // Skip room types that can't accommodate the requested party size
             if (type.getMaxOccupancy() < numGuests) continue;
 
-            // Check physical inventory for the whole stay
-            List<Room> availableRooms = roomRepository.findAvailableRooms(
+            // Count-based availability across every night of the stay
+            int availableCount = inventoryService.availableCount(
                     type.getId(), checkInDate, checkOutDate);
 
-            if (availableRooms.isEmpty()) continue; // Nothing physically available
+            if (availableCount <= 0) continue; // sold out or dates not open
 
             // Price every rate plan of this type for the requested dates
             List<RatePlanResponseDTO> ratePlanDTOs = ratePlanRepository.findByRoomTypeId(type.getId())
@@ -88,7 +89,7 @@ public class ReservationService {
                         return new RatePlanResponseDTO(
                                 rp.getId(),
                                 rp.getName(),
-                                rp.getCurrency(),
+                                type.getCurrency(),
                                 rp.getMinStayNights(),
                                 rp.getBreakfastIncluded(),
                                 rp.getIsRefundable(),
@@ -102,7 +103,7 @@ public class ReservationService {
                     type.getName(),
                     type.getDescription(),
                     type.getMaxOccupancy(),
-                    availableRooms.size(),
+                    availableCount,
                     type.getBasePricePerNight(),
                     type.getCurrency(),
                     ratePlanDTOs));
@@ -118,14 +119,13 @@ public class ReservationService {
     /**
      * Creates a confirmed reservation under a single chosen rate plan. The flow is:
      *   1. Resolve the authenticated guest and the chosen rate plan (+ its room type).
-     *   2. Enforce the plan's minimum-stay policy.
-     *   3. Confirm the room type is physically available for the stay.
+     *   2. Enforce occupancy and the plan's minimum-stay policy.
+     *   3. Atomically reserve room-type inventory for every night (pessimistic lock).
      *   4. Price the stay day-by-day (plan overrides + base-rate fallback).
      *   5. Persist the reservation with its frozen per-night breakdown.
      *
-     * NOTE (Phase 2): a physical room is still assigned here to keep the current
-     * availability query working. Phase 2 replaces this with count-based room-type
-     * inventory + a pessimistic lock, and assigns the physical room at check-in.
+     * A physical room is NOT assigned here — the reservation holds count-based
+     * inventory and stays CONFIRMED with assignedRoom == null until check-in.
      */
     @Transactional
     public ReservationConfirmationDTO createBooking(ReservationRequestDTO request) {
@@ -160,24 +160,17 @@ public class ReservationService {
                     ratePlan.getName(), ratePlan.getMinStayNights(), nights));
         }
 
-        // 5. Physical availability for the whole stay (race-safe inventory is Phase 2)
-        List<Room> availableRooms = roomRepository.findAvailableRooms(
-                roomType.getId(), checkIn, checkOut);
-
-        if (availableRooms.isEmpty()) {
-            throw new NoAvailabilityException(
-                    "Sorry, no rooms are available for the selected room type and dates. Please try different dates.");
-        }
+        // 5. Atomically hold one room per night (locks the nights; throws if sold out)
+        inventoryService.reserve(roomType, checkIn, checkOut);
 
         // 6. Price the stay day-by-day
         PricingService.PriceQuote quote = pricingService.quote(roomType, ratePlan, checkIn, checkOut);
 
-        // 7. Build the reservation shell (Phase 2 will drop booking-time assignment)
-        Room assignedRoom = availableRooms.get(0);
+        // 7. Build the reservation — no physical room yet; assigned at check-in
         Reservation reservation = Reservation.builder()
                 .guest(guest)
                 .ratePlan(ratePlan)
-                .assignedRoom(assignedRoom)
+                .assignedRoom(null)
                 .confirmationNumber(generateConfirmationNumber())
                 .checkInDate(checkIn)
                 .checkOutDate(checkOut)
@@ -199,13 +192,13 @@ public class ReservationService {
 
         reservation = reservationRepository.save(reservation); // cascades nights
 
-        // 9. Rich confirmation with the breakdown
+        // 9. Rich confirmation with the breakdown (assignedRoomId is null until check-in)
         return new ReservationConfirmationDTO(
                 reservation.getId(),
                 reservation.getConfirmationNumber(),
                 guest.getFirstName() + " " + guest.getLastName(),
                 roomType.getName(),
-                assignedRoom.getId(),
+                null,
                 checkIn,
                 checkOut,
                 request.numGuests(),
@@ -215,6 +208,45 @@ public class ReservationService {
                 reservation.getStatus().name(),
                 toNightlyDTOs(reservation),
                 reservation.getCreatedAt());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // STEP 2b: CHECK-IN — Assign a physical room on arrival
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Assigns a concrete physical room to a CONFIRMED reservation and moves it to
+     * CHECKED_IN. This is where a real room number is picked — from the rooms of
+     * the booked type that are physically free (no overlapping CHECKED_IN stay,
+     * no maintenance block) for the reservation's dates.
+     */
+    @Transactional
+    public ReservationResponseDTO checkIn(Long reservationId) {
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Reservation not found with ID: " + reservationId));
+
+        if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
+            throw new IllegalArgumentException(
+                    "Only CONFIRMED reservations can be checked in. Current status: " + reservation.getStatus());
+        }
+
+        RoomType roomType = reservation.getRatePlan().getRoomType();
+        List<Room> freeRooms = roomRepository.findAvailableRooms(
+                roomType.getId(), reservation.getCheckInDate(), reservation.getCheckOutDate());
+
+        if (freeRooms.isEmpty()) {
+            // Inventory count said a room was held, but no physical room is free —
+            // indicates a maintenance block or data drift needing staff attention.
+            throw new NoAvailabilityException(
+                    "No physical room is free to assign for this reservation. Please contact the front desk.");
+        }
+
+        reservation.setAssignedRoom(freeRooms.get(0));
+        reservation.setStatus(ReservationStatus.CHECKED_IN);
+        reservationRepository.save(reservation);
+
+        return toDTO(reservation);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -255,8 +287,8 @@ public class ReservationService {
     /**
      * Cancels a reservation. Only CONFIRMED reservations can be cancelled.
      * Refundability is a property of the rate plan, not the status, so the status
-     * simply becomes CANCELLED — which is exactly what the availability query
-     * treats as "room freed".
+     * simply becomes CANCELLED. The held room-type inventory is released back to
+     * the allotment so the freed nights become sellable again.
      */
     @Transactional
     public void cancelReservation(Long reservationId) {
@@ -277,6 +309,12 @@ public class ReservationService {
 
         reservation.setStatus(ReservationStatus.CANCELLED);
         reservationRepository.save(reservation);
+
+        // Give the nights back to the allotment
+        inventoryService.release(
+                reservation.getRatePlan().getRoomType(),
+                reservation.getCheckInDate(),
+                reservation.getCheckOutDate());
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -313,7 +351,7 @@ public class ReservationService {
                 ratePlan.getRoomType().getName(),
                 assignedRoom != null ? assignedRoom.getId() : null,
                 ratePlan.getName(),
-                ratePlan.getCurrency(),
+                ratePlan.getRoomType().getCurrency(),
                 reservation.getCheckInDate(),
                 reservation.getCheckOutDate(),
                 reservation.getNumGuests(),

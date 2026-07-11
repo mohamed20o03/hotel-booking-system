@@ -44,6 +44,25 @@ CREATE TABLE room_type (
 
 
 -- -------------------------------------------------------------
+-- TABLE: room_type_inventory
+-- The sellable allotment calendar: one row per room type per date.
+-- total_rooms is the capacity for that night; booked_count is how many are
+-- held by active reservations. A room type is available for a stay only if
+-- every night in [check_in, check_out) has a row with booked_count < total_rooms.
+-- Booking locks these rows (SELECT ... FOR UPDATE) to prevent double-booking.
+-- -------------------------------------------------------------
+CREATE TABLE room_type_inventory (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    room_type_id BIGINT  NOT NULL,
+    date         DATE    NOT NULL,
+    total_rooms  INT     NOT NULL,
+    booked_count INT     NOT NULL DEFAULT 0,
+    FOREIGN KEY (room_type_id) REFERENCES room_type(id) ON DELETE CASCADE,
+    UNIQUE (room_type_id, date)
+);
+
+
+-- -------------------------------------------------------------
 -- TABLE: room
 -- Represents a single physical room in a hotel.
 -- A room belongs to a room_type, and the hotel is derived
@@ -64,14 +83,14 @@ CREATE TABLE room (
 -- -------------------------------------------------------------
 -- TABLE: rate_plan
 -- A bookable product/policy for a room type. It carries the guest-facing
--- policies (refundable, breakfast, minimum stay) and a currency — but NOT a
--- price. Per-night prices live in rate_plan_rate as sparse date overrides.
+-- policies (refundable, breakfast, minimum stay) — but NOT a price or currency.
+-- Per-night prices live in rate_plan_rate as sparse date overrides; the
+-- currency comes from the room type, keeping a stay single-currency.
 -- -------------------------------------------------------------
 CREATE TABLE rate_plan (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     room_type_id        BIGINT          NOT NULL,
     name                VARCHAR(50)     NOT NULL,
-    currency            VARCHAR(3)      DEFAULT 'EGP',
     min_stay_nights     INT             DEFAULT 1,
     breakfast_included  BOOLEAN         DEFAULT FALSE,
     is_refundable       BOOLEAN         DEFAULT TRUE,

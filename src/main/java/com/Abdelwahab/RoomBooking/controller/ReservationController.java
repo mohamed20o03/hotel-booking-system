@@ -59,4 +59,12 @@ public class ReservationController {
         return ResponseEntity.noContent().build();
     }
 
+    // PATCH /api/reservations/{id}/check-in
+    // Assigns a physical room and moves a CONFIRMED reservation to CHECKED_IN.
+    @PatchMapping("/{id}/check-in")
+    public ResponseEntity<ReservationResponseDTO> checkIn(@PathVariable Long id) {
+        ReservationResponseDTO reservation = reservationService.checkIn(id);
+        return ResponseEntity.ok(reservation);
+    }
+
 }

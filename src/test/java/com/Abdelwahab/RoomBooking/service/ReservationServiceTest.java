@@ -51,6 +51,7 @@ public class ReservationServiceTest {
     @Mock private GuestRepository guestRepository;
     @Mock private ReservationRepository reservationRepository;
     @Mock private PricingService pricingService;
+    @Mock private InventoryService inventoryService;
     @Mock private SecurityContext securityContext;
     @Mock private Authentication authentication;
 
@@ -84,12 +85,12 @@ public class ReservationServiceTest {
                 .currency("USD")
                 .build();
 
-        // Rate plans are now policy-only; per-night prices come from PricingService.
+        // Rate plans are now policy-only; per-night prices come from PricingService,
+        // and currency comes from the room type.
         sampleRatePlan = RatePlan.builder()
                 .id(300L)
                 .roomType(sampleRoomType)
                 .name("Standard Rate")
-                .currency("USD")
                 .minStayNights(1)
                 .isRefundable(true)
                 .build();
@@ -152,7 +153,7 @@ public class ReservationServiceTest {
         LocalDate checkOut = LocalDate.now().plusDays(3);
 
         when(roomTypeRepository.findByHotelId(100L)).thenReturn(List.of(sampleRoomType));
-        when(roomRepository.findAvailableRooms(200L, checkIn, checkOut)).thenReturn(List.of(sampleRoom));
+        when(inventoryService.availableCount(200L, checkIn, checkOut)).thenReturn(4);
         when(ratePlanRepository.findByRoomTypeId(200L)).thenReturn(List.of(sampleRatePlan));
         when(pricingService.quote(any(RoomType.class), any(RatePlan.class), eq(checkIn), eq(checkOut)))
                 .thenReturn(twoNightQuote(checkIn));
@@ -161,7 +162,7 @@ public class ReservationServiceTest {
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).roomTypeName()).isEqualTo("Deluxe Room");
-        assertThat(results.get(0).availableRoomsCount()).isEqualTo(1);
+        assertThat(results.get(0).availableRoomsCount()).isEqualTo(4);
         assertThat(results.get(0).ratePlans()).hasSize(1);
         assertThat(results.get(0).ratePlans().get(0).name()).isEqualTo("Standard Rate");
         assertThat(results.get(0).ratePlans().get(0).totalPrice()).isEqualByComparingTo("300.00");
@@ -177,7 +178,6 @@ public class ReservationServiceTest {
 
         when(guestRepository.findByEmail("john@example.com")).thenReturn(Optional.of(sampleGuest));
         when(ratePlanRepository.findById(300L)).thenReturn(Optional.of(sampleRatePlan));
-        when(roomRepository.findAvailableRooms(200L, checkIn, checkOut)).thenReturn(List.of(sampleRoom));
         when(pricingService.quote(any(RoomType.class), any(RatePlan.class), eq(checkIn), eq(checkOut)))
                 .thenReturn(twoNightQuote(checkIn));
 
@@ -192,7 +192,11 @@ public class ReservationServiceTest {
         assertThat(confirmation.nights()).isEqualTo(2);
         assertThat(confirmation.nightlyBreakdown()).hasSize(2);
         assertThat(confirmation.status()).isEqualTo("CONFIRMED");
+        // No physical room is assigned at booking — that happens at check-in
+        assertThat(confirmation.assignedRoomId()).isNull();
 
+        // Inventory was held atomically for the stay
+        verify(inventoryService, times(1)).reserve(sampleRoomType, checkIn, checkOut);
         verify(reservationRepository, times(1)).save(any(Reservation.class));
     }
 
@@ -206,5 +210,25 @@ public class ReservationServiceTest {
         // Refundability is a rate-plan property, not a status: cancel -> CANCELLED
         assertThat(sampleReservation.getStatus()).isEqualTo(ReservationStatus.CANCELLED);
         verify(reservationRepository, times(1)).save(sampleReservation);
+        // Held inventory is returned to the allotment
+        verify(inventoryService, times(1)).release(
+                sampleRoomType,
+                sampleReservation.getCheckInDate(),
+                sampleReservation.getCheckOutDate());
+    }
+
+    @Test
+    public void checkIn_AssignsRoom_AndMovesToCheckedIn() {
+        when(reservationRepository.findById(500L)).thenReturn(Optional.of(sampleReservation));
+        when(roomRepository.findAvailableRooms(
+                200L, sampleReservation.getCheckInDate(), sampleReservation.getCheckOutDate()))
+                .thenReturn(List.of(sampleRoom));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(i -> i.getArguments()[0]);
+
+        ReservationResponseDTO response = reservationService.checkIn(500L);
+
+        assertThat(sampleReservation.getStatus()).isEqualTo(ReservationStatus.CHECKED_IN);
+        assertThat(sampleReservation.getAssignedRoom()).isEqualTo(sampleRoom);
+        assertThat(response.assignedRoomId()).isEqualTo(sampleRoom.getId());
     }
 }

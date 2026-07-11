@@ -24,11 +24,11 @@ INSERT INTO room (room_type_id, room_number, floor, building) VALUES
 (2, 201, 2, 'Main'),
 (2, 202, 2, 'Main');
 
--- Rate plans (policy only — no price here)
-INSERT INTO rate_plan (room_type_id, name, currency, min_stay_nights, breakfast_included, is_refundable) VALUES
-(1, 'Flexible',       'EGP', 1, TRUE,  TRUE),   -- id 1: refundable, breakfast included
-(1, 'Non-Refundable', 'EGP', 2, FALSE, FALSE),  -- id 2: cheaper promo, stricter policy
-(2, 'Flexible',       'EGP', 1, TRUE,  TRUE);   -- id 3: for the Deluxe Suite
+-- Rate plans (policy only — no price or currency here; currency comes from the room type)
+INSERT INTO rate_plan (room_type_id, name, min_stay_nights, breakfast_included, is_refundable) VALUES
+(1, 'Flexible',       1, TRUE,  TRUE),   -- id 1: refundable, breakfast included
+(1, 'Non-Refundable', 2, FALSE, FALSE),  -- id 2: cheaper promo, stricter policy
+(2, 'Flexible',       1, TRUE,  TRUE);   -- id 3: for the Deluxe Suite
 
 -- Summer Promo overrides for the Non-Refundable plan (id 2): Aug 5–15 2026 at 80 EGP.
 -- Any date NOT listed here falls back to the room type base rate (100 EGP).
@@ -44,3 +44,16 @@ INSERT INTO rate_plan_rate (rate_plan_id, date, price) VALUES
 (2, '2026-08-13', 80.00),
 (2, '2026-08-14', 80.00),
 (2, '2026-08-15', 80.00);
+
+-- Open the allotment calendar for all of 2026: one inventory row per room type
+-- per night, seeded to that room type's total_rooms with nothing booked yet.
+-- H2's SYSTEM_RANGE generates the 365 dates; a CROSS JOIN spreads them over
+-- every room type so bookings have inventory to hold.
+INSERT INTO room_type_inventory (room_type_id, date, total_rooms, booked_count)
+SELECT rt.id,
+       DATEADD('DAY', d.x, DATE '2026-01-01'),
+       rt.total_rooms,
+       0
+FROM room_type rt
+CROSS JOIN SYSTEM_RANGE(0, 364) d;
+

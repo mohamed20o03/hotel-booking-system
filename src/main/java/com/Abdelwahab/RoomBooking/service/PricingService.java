@@ -72,13 +72,6 @@ public class PricingService {
                 ratePlan.getName(), roomType.getName()));
         }
 
-        // Guard against silently summing two currencies into one total.
-        if (!ratePlan.getCurrency().equals(roomType.getCurrency())) {
-            throw new IllegalStateException(String.format(
-                "Currency mismatch: rate plan is %s but room type is %s.",
-                ratePlan.getCurrency(), roomType.getCurrency()));
-        }
-
         // Load only the override rows that fall inside the stay, keyed by date.
         Map<LocalDate, BigDecimal> overrides = ratePlanRateRepository
                 .findForStay(ratePlan.getId(), checkIn, checkOut)
