@@ -22,6 +22,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -80,6 +81,18 @@ public class Reservation {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ReservationStatus status;
+
+    // While PENDING, the held inventory is only guaranteed until this instant.
+    // The expiry sweep releases holds past this time. Null once the reservation
+    // leaves PENDING (paid, cancelled, expired).
+    @Column(name = "hold_expires_at")
+    private LocalDateTime holdExpiresAt;
+
+    // Optimistic-lock guard so a concurrent payment and the expiry sweep can't
+    // both act on the same PENDING hold — the loser gets an OptimisticLockException.
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     // The frozen per-night price breakdown (day-by-day billing).
     // Cascade + orphanRemoval: nights are owned entirely by their reservation.

@@ -147,6 +147,7 @@ CREATE TABLE guest (
     document_number VARCHAR(100) NOT NULL,
     date_of_birth   DATE         NOT NULL,
     loyalty_tier    VARCHAR(20)  DEFAULT 'STANDARD', -- e.g., STANDARD, SILVER, GOLD
+    role            VARCHAR(20)  NOT NULL DEFAULT 'ROLE_USER', -- Spring Security authority: ROLE_USER | ROLE_ADMIN
     created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -170,7 +171,14 @@ CREATE TABLE reservation (
     check_out_date      DATE            NOT NULL,
     num_guests          INT             NOT NULL,
     total_price         DECIMAL(19, 2)  NOT NULL,  -- Frozen at booking time
-    status              VARCHAR(20)     NOT NULL,   -- e.g., CONFIRMED, CANCELLED, CHECKED_IN
+    status              VARCHAR(20)     NOT NULL,   -- e.g., PENDING, CONFIRMED, CANCELLED, CHECKED_IN
+    -- While PENDING, the reservation holds inventory only until this instant.
+    -- A sweep expires holds past this time and frees the held nights. NULL once
+    -- the reservation leaves PENDING (paid, cancelled, etc.).
+    hold_expires_at     TIMESTAMP       NULL,
+    -- Optimistic-lock guard: prevents a concurrent payment and the expiry sweep
+    -- from both acting on the same PENDING hold (one commits, the other retries).
+    version             BIGINT          NOT NULL DEFAULT 0,
     created_at          TIMESTAMP       DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guest_id)          REFERENCES guest(id)  ON DELETE RESTRICT,
     FOREIGN KEY (rate_plan_id)      REFERENCES rate_plan(id) ON DELETE RESTRICT,

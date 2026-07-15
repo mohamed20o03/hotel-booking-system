@@ -99,4 +99,49 @@ public class InventoryService {
         }
         inventoryRepository.saveAll(rows);
     }
+
+    /**
+     * Takes one room of the type out of the sellable allotment for every night in
+     * [start, end) — used when a physical room is put under maintenance. This keeps
+     * the count calendar in step with physical reality, so availableCount can never
+     * promise a room that check-in cannot actually deliver.
+     *
+     * Rejects the whole range if any night is already fully sold (remaining <= 0),
+     * because dropping capacity there would push total_rooms below booked_count and
+     * oversell an existing guest — that room must be freed/relocated first. Nights
+     * with no inventory row (never opened for sale) are simply skipped.
+     *
+     * Locks the rows so the decrement is atomic against concurrent bookings.
+     * MUST run within a transaction.
+     */
+    public void decrementCapacity(RoomType roomType, LocalDate start, LocalDate end) {
+        List<RoomTypeInventory> rows = inventoryRepository.lockForStay(
+                roomType.getId(), start, end);
+
+        for (RoomTypeInventory row : rows) {
+            if (row.remaining() <= 0) {
+                throw new NoAvailabilityException(String.format(
+                        "Cannot block a room of type '%s' on %s: all rooms are booked that night. "
+                        + "Free or relocate the affected reservation first.",
+                        roomType.getName(), row.getDate()));
+            }
+            row.setTotalRooms(row.getTotalRooms() - 1);
+        }
+        inventoryRepository.saveAll(rows);
+    }
+
+    /**
+     * Returns one room of capacity per night in [start, end) to the allotment — the
+     * inverse of decrementCapacity, used when a maintenance block is lifted.
+     * Locks the rows so the increment is atomic against concurrent bookings.
+     * MUST run within a transaction.
+     */
+    public void incrementCapacity(RoomType roomType, LocalDate start, LocalDate end) {
+        List<RoomTypeInventory> rows = inventoryRepository.lockForStay(
+                roomType.getId(), start, end);
+        for (RoomTypeInventory row : rows) {
+            row.setTotalRooms(row.getTotalRooms() + 1);
+        }
+        inventoryRepository.saveAll(rows);
+    }
 }

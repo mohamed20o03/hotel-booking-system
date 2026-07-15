@@ -37,6 +37,7 @@ public class GuestService {
             .documentNumber(request.documentNumber())
             .dateOfBirth(request.dateOfBirth())
             .loyaltyTier("STANDARD")
+            .role("ROLE_USER") // self-registration never mints an admin
             .createdAt(java.time.LocalDateTime.now())
             .build();
 

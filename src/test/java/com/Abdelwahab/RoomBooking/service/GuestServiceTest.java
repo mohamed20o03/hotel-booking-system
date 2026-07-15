@@ -85,6 +85,8 @@ public class GuestServiceTest {
         assertThat(captor.getValue().getPassword())
             .isNotEqualTo("raw-password")
             .isEqualTo("hash-password");
+        // Self-registration must never mint an admin — role is pinned to ROLE_USER.
+        assertThat(captor.getValue().getRole()).isEqualTo("ROLE_USER");
     }
 
     @Test

@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -31,7 +32,7 @@ public class GlobalExceptionHandler {
     }
 
     // 2. Handle Business Conflicts / Duplicates (409)
-    @ExceptionHandler({NoAvailabilityException.class, DuplicateResourceException.class})
+    @ExceptionHandler({NoAvailabilityException.class, DuplicateResourceException.class, PaymentException.class})
     public ResponseEntity<ErrorResponse> handleConflictExceptions(
         RuntimeException ex, HttpServletRequest request) {
 
@@ -43,6 +44,23 @@ public class GlobalExceptionHandler {
             request.getRequestURI()
         );
         return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+    }
+
+    // 2b. Handle Authorization Failures (403)
+    // Thrown by @PreAuthorize / URL rules when an authenticated user lacks the role.
+    // Must be re-mapped explicitly, otherwise the catch-all below would turn it into a 500.
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(
+        AccessDeniedException ex, HttpServletRequest request) {
+
+        ErrorResponse errorResponse = new ErrorResponse(
+            LocalDateTime.now(),
+            HttpStatus.FORBIDDEN.value(),
+            HttpStatus.FORBIDDEN.getReasonPhrase(),
+            "You do not have permission to perform this action.",
+            request.getRequestURI()
+        );
+        return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
     }
 
     // 3. Handle Validation Errors from @Valid (400)

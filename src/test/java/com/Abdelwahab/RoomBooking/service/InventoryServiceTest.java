@@ -148,4 +148,42 @@ public class InventoryServiceTest {
 
         assertThat(locked).extracting(RoomTypeInventory::getBookedCount).containsExactly(0, 0, 0);
     }
+
+    // ── capacity (maintenance) ────────────────────────────────────
+
+    @Test
+    public void decrementCapacity_reducesTotalOnEveryNight_whenRoomsAreFree() {
+        // total 3, booked 0/1/2 -> all have room, so capacity can drop to 2/2/2
+        List<RoomTypeInventory> locked = rows(3, 0, 1, 2);
+        when(inventoryRepository.lockForStay(1L, CHECK_IN, CHECK_OUT)).thenReturn(locked);
+
+        inventoryService.decrementCapacity(roomType, CHECK_IN, CHECK_OUT);
+
+        assertThat(locked).extracting(RoomTypeInventory::getTotalRooms).containsExactly(2, 2, 2);
+        verify(inventoryRepository).saveAll(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    public void decrementCapacity_throws_whenANightIsFullyBooked() {
+        // Middle night sold out (booked == total): dropping capacity would oversell
+        List<RoomTypeInventory> locked = rows(3, 0, 3, 1);
+        when(inventoryRepository.lockForStay(1L, CHECK_IN, CHECK_OUT)).thenReturn(locked);
+
+        assertThatThrownBy(() -> inventoryService.decrementCapacity(roomType, CHECK_IN, CHECK_OUT))
+                .isInstanceOf(NoAvailabilityException.class)
+                .hasMessageContaining("all rooms are booked");
+
+        verify(inventoryRepository, never()).saveAll(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    public void incrementCapacity_raisesTotalOnEveryNight() {
+        List<RoomTypeInventory> locked = rows(2, 1, 1, 1);
+        when(inventoryRepository.lockForStay(1L, CHECK_IN, CHECK_OUT)).thenReturn(locked);
+
+        inventoryService.incrementCapacity(roomType, CHECK_IN, CHECK_OUT);
+
+        assertThat(locked).extracting(RoomTypeInventory::getTotalRooms).containsExactly(3, 3, 3);
+        verify(inventoryRepository).saveAll(org.mockito.ArgumentMatchers.anyList());
+    }
 }

@@ -1,5 +1,6 @@
 package com.Abdelwahab.RoomBooking.service;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -46,6 +47,11 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final PricingService pricingService;
     private final InventoryService inventoryService;
+
+    // How long a new reservation holds its inventory before payment. If unpaid by
+    // then, the expiry sweep frees the held nights. Kept short so abandoned carts
+    // don't sit on scarce rooms.
+    private static final Duration HOLD_DURATION = Duration.ofMinutes(30);
 
     // ─────────────────────────────────────────────────────────────
     // STEP 1: SEARCH — Guest looks for available options
@@ -166,7 +172,9 @@ public class ReservationService {
         // 6. Price the stay day-by-day
         PricingService.PriceQuote quote = pricingService.quote(roomType, ratePlan, checkIn, checkOut);
 
-        // 7. Build the reservation — no physical room yet; assigned at check-in
+        // 7. Build the reservation — held as PENDING until paid. No physical room
+        //    yet; that is assigned at check-in. The hold guarantees the inventory
+        //    only until holdExpiresAt, after which the expiry sweep frees it.
         Reservation reservation = Reservation.builder()
                 .guest(guest)
                 .ratePlan(ratePlan)
@@ -176,7 +184,8 @@ public class ReservationService {
                 .checkOutDate(checkOut)
                 .numGuests(request.numGuests())
                 .totalPrice(quote.total())
-                .status(ReservationStatus.CONFIRMED)
+                .status(ReservationStatus.PENDING)
+                .holdExpiresAt(LocalDateTime.now().plus(HOLD_DURATION))
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -302,12 +311,17 @@ public class ReservationService {
             throw new IllegalArgumentException("You do not have permission to cancel this reservation.");
         }
 
-        if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
+        // Both an unpaid hold (PENDING) and a paid booking (CONFIRMED) hold
+        // inventory, so either can be cancelled; later states cannot.
+        if (reservation.getStatus() != ReservationStatus.CONFIRMED
+                && reservation.getStatus() != ReservationStatus.PENDING) {
             throw new IllegalArgumentException(
-                    "Only CONFIRMED reservations can be cancelled. Current status: " + reservation.getStatus());
+                    "Only PENDING or CONFIRMED reservations can be cancelled. Current status: "
+                            + reservation.getStatus());
         }
 
         reservation.setStatus(ReservationStatus.CANCELLED);
+        reservation.setHoldExpiresAt(null); // no longer a live hold
         reservationRepository.save(reservation);
 
         // Give the nights back to the allotment
@@ -315,6 +329,53 @@ public class ReservationService {
                 reservation.getRatePlan().getRoomType(),
                 reservation.getCheckInDate(),
                 reservation.getCheckOutDate());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // STEP 5: EXPIRE — Release holds that were never paid
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Expires a single lapsed hold: moves a PENDING reservation to EXPIRED and
+     * releases its held nights. Re-checks the status inside the transaction so a
+     * payment that landed between the sweep's query and this call is respected —
+     * only a still-PENDING reservation is expired. The @Version guard turns a
+     * concurrent payment on the same row into an OptimisticLockException, which
+     * the caller lets skip that one reservation rather than clobbering the payment.
+     *
+     * Runs in its own transaction (per reservation) so one failure or lock
+     * conflict doesn't roll back the rest of the sweep.
+     */
+    @Transactional
+    public void expireHold(Long reservationId) {
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElse(null);
+        if (reservation == null || reservation.getStatus() != ReservationStatus.PENDING) {
+            return; // already paid, cancelled, or gone — nothing to expire
+        }
+
+        reservation.setStatus(ReservationStatus.EXPIRED);
+        reservation.setHoldExpiresAt(null);
+        reservationRepository.save(reservation);
+
+        inventoryService.release(
+                reservation.getRatePlan().getRoomType(),
+                reservation.getCheckInDate(),
+                reservation.getCheckOutDate());
+    }
+
+    /**
+     * IDs of every PENDING hold whose window has lapsed as of {@code now}. The
+     * sweeper expires each one through the proxied {@link #expireHold(Long)} so
+     * each gets its own transaction; hence this returns IDs, not entities.
+     */
+    @Transactional(readOnly = true)
+    public List<Long> findLapsedHoldIds(LocalDateTime now) {
+        return reservationRepository
+                .findByStatusAndHoldExpiresAtBefore(ReservationStatus.PENDING, now)
+                .stream()
+                .map(Reservation::getId)
+                .toList();
     }
 
     // ─────────────────────────────────────────────────────────────

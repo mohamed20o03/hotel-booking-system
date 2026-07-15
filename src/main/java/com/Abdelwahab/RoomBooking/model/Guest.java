@@ -69,12 +69,19 @@ public class Guest implements UserDetails {
     @Builder.Default
     private String loyaltyTier = "STANDARD";
 
+    // Spring Security authority, stored with its ROLE_ prefix (ROLE_USER | ROLE_ADMIN)
+    // so it feeds getAuthorities() directly and hasRole('ADMIN') matches. Guests who
+    // self-register are always ROLE_USER; an admin can only be seeded, never registered.
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private String role = "ROLE_USER";
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        return List.of(new SimpleGrantedAuthority(role));
     }
 
     @Override

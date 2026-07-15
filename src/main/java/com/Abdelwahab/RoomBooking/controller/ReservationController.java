@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -61,7 +62,9 @@ public class ReservationController {
 
     // PATCH /api/reservations/{id}/check-in
     // Assigns a physical room and moves a CONFIRMED reservation to CHECKED_IN.
+    // Front-desk action — admin only.
     @PatchMapping("/{id}/check-in")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ReservationResponseDTO> checkIn(@PathVariable Long id) {
         ReservationResponseDTO reservation = reservationService.checkIn(id);
         return ResponseEntity.ok(reservation);

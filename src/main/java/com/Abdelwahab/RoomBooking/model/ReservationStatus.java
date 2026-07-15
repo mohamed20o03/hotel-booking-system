@@ -13,10 +13,11 @@ package com.Abdelwahab.RoomBooking.model;
  * never equalled the literal "CANCELLED" used by the availability query.
  */
 public enum ReservationStatus {
-    PENDING,      // created, awaiting payment (used from Phase 2 onward)
-    CONFIRMED,    // active booking, holds inventory
+    PENDING,      // created, holding inventory until hold_expires_at, awaiting payment
+    CONFIRMED,    // paid and active booking, holds inventory
     CHECKED_IN,   // guest has arrived, physical room assigned
     CHECKED_OUT,  // stay completed
     CANCELLED,    // cancelled by guest or hotel — frees inventory
+    EXPIRED,      // payment hold lapsed before payment — frees inventory
     NO_SHOW       // guest never arrived
 }

@@ -3,6 +3,7 @@ package com.Abdelwahab.RoomBooking.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -191,13 +193,19 @@ public class ReservationServiceTest {
         assertThat(confirmation.totalPrice()).isEqualByComparingTo("300.00"); // 2 nights
         assertThat(confirmation.nights()).isEqualTo(2);
         assertThat(confirmation.nightlyBreakdown()).hasSize(2);
-        assertThat(confirmation.status()).isEqualTo("CONFIRMED");
+        // Booking now starts as a PENDING hold, awaiting payment to confirm
+        assertThat(confirmation.status()).isEqualTo("PENDING");
         // No physical room is assigned at booking — that happens at check-in
         assertThat(confirmation.assignedRoomId()).isNull();
 
         // Inventory was held atomically for the stay
         verify(inventoryService, times(1)).reserve(sampleRoomType, checkIn, checkOut);
-        verify(reservationRepository, times(1)).save(any(Reservation.class));
+
+        // The held reservation carries a future hold-expiry timestamp
+        ArgumentCaptor<Reservation> saved = ArgumentCaptor.forClass(Reservation.class);
+        verify(reservationRepository, times(1)).save(saved.capture());
+        assertThat(saved.getValue().getStatus()).isEqualTo(ReservationStatus.PENDING);
+        assertThat(saved.getValue().getHoldExpiresAt()).isAfter(LocalDateTime.now());
     }
 
     @Test
@@ -215,6 +223,55 @@ public class ReservationServiceTest {
                 sampleRoomType,
                 sampleReservation.getCheckInDate(),
                 sampleReservation.getCheckOutDate());
+    }
+
+    @Test
+    public void cancelReservation_alsoCancelsAPendingHold() {
+        // A PENDING hold holds inventory too, so it must be cancellable.
+        sampleReservation.setStatus(ReservationStatus.PENDING);
+        sampleReservation.setHoldExpiresAt(LocalDateTime.now().plusMinutes(30));
+        mockSecurityContext("john@example.com");
+        when(reservationRepository.findById(500L)).thenReturn(Optional.of(sampleReservation));
+
+        reservationService.cancelReservation(500L);
+
+        assertThat(sampleReservation.getStatus()).isEqualTo(ReservationStatus.CANCELLED);
+        assertThat(sampleReservation.getHoldExpiresAt()).isNull(); // no longer a live hold
+        verify(inventoryService, times(1)).release(
+                sampleRoomType,
+                sampleReservation.getCheckInDate(),
+                sampleReservation.getCheckOutDate());
+    }
+
+    @Test
+    public void expireHold_expiresPendingHold_andReleasesInventory() {
+        sampleReservation.setStatus(ReservationStatus.PENDING);
+        sampleReservation.setHoldExpiresAt(LocalDateTime.now().minusMinutes(1));
+        when(reservationRepository.findById(500L)).thenReturn(Optional.of(sampleReservation));
+
+        reservationService.expireHold(500L);
+
+        assertThat(sampleReservation.getStatus()).isEqualTo(ReservationStatus.EXPIRED);
+        assertThat(sampleReservation.getHoldExpiresAt()).isNull();
+        verify(reservationRepository, times(1)).save(sampleReservation);
+        verify(inventoryService, times(1)).release(
+                sampleRoomType,
+                sampleReservation.getCheckInDate(),
+                sampleReservation.getCheckOutDate());
+    }
+
+    @Test
+    public void expireHold_isNoOp_whenReservationAlreadyConfirmed() {
+        // A payment confirmed the reservation between the sweep's query and this
+        // call — it must not be expired, and inventory must not be released.
+        sampleReservation.setStatus(ReservationStatus.CONFIRMED);
+        when(reservationRepository.findById(500L)).thenReturn(Optional.of(sampleReservation));
+
+        reservationService.expireHold(500L);
+
+        assertThat(sampleReservation.getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+        verify(reservationRepository, never()).save(any(Reservation.class));
+        verify(inventoryService, never()).release(any(RoomType.class), any(LocalDate.class), any(LocalDate.class));
     }
 
     @Test

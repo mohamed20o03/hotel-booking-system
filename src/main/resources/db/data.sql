@@ -7,6 +7,13 @@
 -- Guests are created at runtime via POST /api/auth/register.
 -- =============================================================
 
+-- Seed admin. This is the ONLY way an admin account exists — POST /api/auth/register
+-- always creates ROLE_USER. Password is 'admin123' (BCrypt hash below); change it
+-- before any real deployment.
+--   login: POST /api/auth/login { "email": "admin@nilegrand.example", "password": "admin123" }
+INSERT INTO guest (first_name, last_name, email, password, phone, nationality, document_type, document_number, date_of_birth, loyalty_tier, role) VALUES
+('Site', 'Admin', 'admin@nilegrand.example', '$2a$10$cYYdukiiivGtp.lzaVZ.E.Q5kMf7tGjCO8sdqp9Wo1/ZgwNCzs4ri', '+201000000000', 'EG', 'NATIONAL_ID', 'ADMIN-0001', '1990-01-01', 'STANDARD', 'ROLE_ADMIN');
+
 -- Hotel
 INSERT INTO hotel (name, address, city, country, phone, email, star_rating, timezone) VALUES
 ('Nile Grand Hotel', '1 Corniche El Nil', 'Cairo', 'Egypt', '+20 2 1234 5678', 'info@nilegrand.example', 5, 'Africa/Cairo');
