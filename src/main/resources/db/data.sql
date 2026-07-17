@@ -64,3 +64,11 @@ SELECT rt.id,
 FROM room_type rt
 CROSS JOIN SYSTEM_RANGE(0, 364) d;
 
+-- Optional add-ons the hotel offers. Guests attach these to a PENDING reservation
+-- before payment; the unit price is frozen onto the booking at attach time.
+INSERT INTO addon (hotel_id, name, category, price, price_unit, available) VALUES
+(1, 'Airport Transfer', 'TRANSPORTATION', 350.00, 'FLAT_RATE',  TRUE),
+(1, 'Breakfast Buffet', 'FOOD',           120.00, 'PER_PERSON', TRUE),
+(1, 'Spa Access',       'SPA',            200.00, 'PER_PERSON', TRUE),
+(1, 'Late Checkout',    'FLEXIBILITY',    150.00, 'FLAT_RATE',  FALSE); -- unavailable: proves the availability filter
+
