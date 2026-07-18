@@ -55,7 +55,14 @@ public class AuthControllerTest {
     private static final String LOGIN_BODY = """
             {"email":"john@example.com","password":"secret123"}""";
 
-    // Login issues the JWT cookie with all its security attributes, and no body token.
+    /**
+     * Given the authentication service returns a signed token for valid credentials;
+     * when an anonymous caller POSTs to the public /api/auth/login endpoint;
+     * then the response is 200 and carries a Set-Cookie header named "jwt" bearing the
+     * token together with the HttpOnly, Secure and SameSite=Strict attributes, and the
+     * token is never written to the response body. This is the guard that stops a
+     * refactor from silently dropping any of those hardening attributes.
+     */
     @Test
     @WithAnonymousUser
     public void login_setsHardenedJwtCookie() throws Exception {
@@ -71,7 +78,13 @@ public class AuthControllerTest {
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("SameSite=Strict")));
     }
 
-    // Registration is public too and issues the same cookie, returning 201.
+    /**
+     * Given the authentication service registers the new account and returns a token;
+     * when an anonymous caller POSTs a complete registration body to the public
+     * /api/auth/register endpoint; then the response is 201 Created and carries the
+     * same "jwt" Set-Cookie header, confirming registration is public and issues the
+     * identical hardened cookie as login.
+     */
     @Test
     @WithAnonymousUser
     public void register_returns201_andSetsCookie() throws Exception {
@@ -89,7 +102,12 @@ public class AuthControllerTest {
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("jwt=signed.jwt.token")));
     }
 
-    // Logout clears the cookie: same name, empty value, Max-Age=0 so the browser drops it.
+    /**
+     * Given no service stubbing is required (logout is stateless);
+     * when a caller POSTs to /api/auth/logout; then the response is 204 No Content and
+     * carries a Set-Cookie header that re-issues the "jwt" cookie with an empty value
+     * and Max-Age=0, instructing the browser to drop the session token immediately.
+     */
     @Test
     @WithAnonymousUser
     public void logout_clearsJwtCookie() throws Exception {
@@ -99,7 +117,12 @@ public class AuthControllerTest {
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")));
     }
 
-    // A malformed login body (blank password) fails @Valid with 400, never reaching the service.
+    /**
+     * Given a login body whose password field is blank;
+     * when it is POSTed to /api/auth/login; then @Valid rejects the request with 400
+     * Bad Request before the controller body runs, and the authentication service is
+     * never invoked — bean validation short-circuits ahead of any credential check.
+     */
     @Test
     @WithAnonymousUser
     public void login_returns400_whenPasswordBlank() throws Exception {

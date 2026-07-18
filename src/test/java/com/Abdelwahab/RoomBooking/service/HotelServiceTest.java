@@ -24,6 +24,14 @@ import com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException;
 import com.Abdelwahab.RoomBooking.model.Hotel;
 import com.Abdelwahab.RoomBooking.repository.HotelRepository;
 
+/**
+ * Plain Mockito unit test for HotelService — no Spring context is loaded
+ * (@ExtendWith(MockitoExtension.class); the HotelRepository collaborator is a @Mock
+ * injected into the service). It covers the hotel CRUD contract in isolation from
+ * persistence: list and single-item reads with their entity-to-DTO mapping, the
+ * not-found path raising ResourceNotFoundException, create/update round-trips, and the
+ * guard that update and delete never touch the repository for a missing hotel.
+ */
 @ExtendWith(MockitoExtension.class)
 public class HotelServiceTest {
 
@@ -51,6 +59,11 @@ public class HotelServiceTest {
                 .build();
     }
 
+    /**
+     * Given the repository returns one hotel;
+     * when all hotels are listed; then a single mapped DTO with the expected id and name
+     * is returned and findAll is queried once.
+     */
     @Test
     public void getAllHotels_ReturnsListOfHotels() {
         when(hotelRepository.findAll()).thenReturn(List.of(sampleHotel));
@@ -64,6 +77,10 @@ public class HotelServiceTest {
         verify(hotelRepository, times(1)).findAll();
     }
 
+    /**
+     * Given the repository finds the hotel;
+     * when it is looked up by id; then the mapped DTO carries the expected id and name.
+     */
     @Test
     public void getHotelById_WhenHotelExists_ReturnsHotel() {
         when(hotelRepository.findById(1L)).thenReturn(Optional.of(sampleHotel));
@@ -76,6 +93,10 @@ public class HotelServiceTest {
         verify(hotelRepository, times(1)).findById(1L);
     }
 
+    /**
+     * Given the repository returns empty for an unknown id;
+     * when it is looked up; then a ResourceNotFoundException naming the id is raised.
+     */
     @Test
     public void getHotelById_WhenHotelNotFound_ThrowsException() {
         when(hotelRepository.findById(99L)).thenReturn(Optional.empty());
@@ -87,6 +108,11 @@ public class HotelServiceTest {
         verify(hotelRepository, times(1)).findById(99L);
     }
 
+    /**
+     * Given the repository assigns an id on save;
+     * when a hotel is created from a request DTO; then the returned DTO carries the
+     * persisted id and name and save is invoked once.
+     */
     @Test
     public void createHotel_persistsAndReturnsDTO() {
         when(hotelRepository.save(any(Hotel.class))).thenAnswer(inv -> {
@@ -106,6 +132,11 @@ public class HotelServiceTest {
         verify(hotelRepository, times(1)).save(any(Hotel.class));
     }
 
+    /**
+     * Given the repository finds the hotel and echoes the saved entity;
+     * when it is updated with new name, city and star rating; then the returned DTO
+     * reflects all three changes.
+     */
     @Test
     public void updateHotel_appliesChanges() {
         when(hotelRepository.findById(1L)).thenReturn(Optional.of(sampleHotel));
@@ -122,6 +153,11 @@ public class HotelServiceTest {
         assertThat(response.starRating()).isEqualTo(4);
     }
 
+    /**
+     * Given the repository returns empty for an unknown id;
+     * when an update is attempted; then a ResourceNotFoundException is raised and save is
+     * never called — the existence check gates the write.
+     */
     @Test
     public void updateHotel_WhenHotelNotFound_ThrowsException() {
         when(hotelRepository.findById(99L)).thenReturn(Optional.empty());
@@ -136,6 +172,11 @@ public class HotelServiceTest {
         verify(hotelRepository, times(0)).save(any());
     }
 
+    /**
+     * Given the repository reports the id does not exist;
+     * when a delete is attempted; then a ResourceNotFoundException is raised and
+     * deleteById is never called.
+     */
     @Test
     public void deleteHotel_WhenHotelNotFound_ThrowsException() {
         when(hotelRepository.existsById(99L)).thenReturn(false);

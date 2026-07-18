@@ -18,11 +18,35 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Staff endpoints for taking rooms in and out of service.
+ * HTTP entry point for taking physical rooms in and out of service: placing and
+ * lifting maintenance blocks.
  *
- * These are administrative actions, restricted to ROLE_ADMIN. Enforcement is
- * layered: SecurityConfig gates /api/maintenance/** by role, and @PreAuthorize
- * repeats the check here so the guard survives a URL rule refactor.
+ * <p><strong>Architectural role.</strong> A thin web-contract adapter. It binds and
+ * validates requests, delegates to {@link MaintenanceService}, and maps results to
+ * HTTP status codes. It holds no business logic: overlap detection and the coupled
+ * adjustment of the room type's sellable capacity live in the service layer.
+ *
+ * <p><strong>Thread safety.</strong> Stateless and therefore thread-safe. Its only
+ * field is the injected singleton {@link MaintenanceService}; each request runs on
+ * its own thread with request-scoped arguments.
+ *
+ * <p><strong>Security &amp; scope.</strong> These are administrative, front-desk
+ * actions. Enforcement is layered: {@code SecurityConfig} gates the whole
+ * {@code /api/maintenance/**} prefix with {@code hasRole("ADMIN")}, and
+ * {@code @PreAuthorize("hasRole('ADMIN')")} repeats the check on each method so the
+ * guard survives a URL-rule refactor. Because there is no
+ * {@code AuthenticationEntryPoint}, an unauthenticated request, and an authenticated
+ * non-admin request alike, both yield {@code 403 Forbidden}.
+ *
+ * <p><strong>Error contract.</strong> Domain exceptions are mapped centrally by
+ * {@code GlobalExceptionHandler}: {@code ResourceNotFoundException → 404},
+ * {@code DuplicateResourceException} (overlapping block) and
+ * {@code NoAvailabilityException} (a blocked night is already fully sold)
+ * {@code → 409}, bean-validation failures on {@code @Valid → 400}, and authorization
+ * failures {@code → 403}.
+ *
+ * @see MaintenanceService
+ * @see com.Abdelwahab.RoomBooking.exception.GlobalExceptionHandler
  */
 @RestController
 @RequestMapping("/api/maintenance")
@@ -31,8 +55,31 @@ public class MaintenanceController {
 
     private final MaintenanceService maintenanceService;
 
-    // POST /api/maintenance
-    // Puts a room under maintenance and reduces sellable capacity for the range.
+    /**
+     * Places a room under maintenance for the requested range, decrementing the room
+     * type's sellable capacity for every blocked night.
+     *
+     * <p><strong>Admin only.</strong> The whole operation runs in one transaction, so
+     * if any night is already fully sold nothing is persisted and no capacity changes.
+     * The request body is validated with {@code @Valid} before the service is reached.
+     *
+     * @param request the block to create — the physical room, the {@code [startDate,
+     *                endDate)} range, and a reason; validated by DTO constraints.
+     * @return {@code 201 Created} with the persisted {@link MaintenanceBlockResponseDTO},
+     *         including its generated id.
+     * @throws com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException if no
+     *         room has the requested id (mapped to {@code 404}).
+     * @throws com.Abdelwahab.RoomBooking.exception.DuplicateResourceException if the
+     *         range overlaps an existing block on the same room (mapped to
+     *         {@code 409}).
+     * @throws com.Abdelwahab.RoomBooking.exception.NoAvailabilityException if a
+     *         blocked night is already fully booked, leaving no capacity to withdraw
+     *         (mapped to {@code 409}).
+     * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
+     *         fails bean validation (mapped to {@code 400}).
+     * @throws org.springframework.security.access.AccessDeniedException if the caller
+     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<MaintenanceBlockResponseDTO> createBlock(
@@ -41,8 +88,18 @@ public class MaintenanceController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    // DELETE /api/maintenance/{id}
-    // Lifts a maintenance block and returns the freed capacity to the allotment.
+    /**
+     * Lifts a maintenance block and returns the freed capacity to the allotment.
+     *
+     * <p><strong>Admin only.</strong>
+     *
+     * @param id the identifier of the maintenance block to remove.
+     * @return {@code 204 No Content} on success.
+     * @throws com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException if no
+     *         block has that id (mapped to {@code 404}).
+     * @throws org.springframework.security.access.AccessDeniedException if the caller
+     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> removeBlock(@PathVariable Long id) {

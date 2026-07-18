@@ -20,22 +20,32 @@ import lombok.RequiredArgsConstructor;
 /**
  * The day-by-day pricing engine.
  *
- * Given a room type, a chosen rate plan, and a stay, it walks every night in the
- * half-open interval [checkIn, checkOut) and resolves each night's price:
+ * <p><strong>Responsibility.</strong> Given a room type, a chosen rate plan, and a
+ * stay, it walks every night in the half-open interval {@code [checkIn, checkOut)}
+ * and resolves each night's price:
+ * <ul>
+ *   <li>if the rate plan has an override for that date, use the override
+ *       ({@code PLAN});</li>
+ *   <li>otherwise fall back to the room type's base rate ({@code BASE}).</li>
+ * </ul>
  *
- *   - if the rate plan has an override for that date  -> use the override (PLAN)
- *   - otherwise                                       -> use the room type's base rate (BASE)
+ * <p>This is a pure function of its inputs (plus the override rows it reads), so it
+ * is trivial to unit-test and produces the same total the guest was quoted.
+ * {@link ReservationService} freezes the returned per-night breakdown onto the
+ * reservation at booking time, so a later rate change never rewrites a live booking.
  *
- * This is a pure function of its inputs (plus the override rows it reads), so it is
- * trivial to unit-test and produces the same total the guest was quoted.
+ * <p><strong>Worked example</strong> — base 100, a "Summer Promo" override of 80 for
+ * Aug 5–15, stay Aug 1 (check-in) to Aug 31 (check-out) = 30 nights:
+ * <ul>
+ *   <li>Aug 1–4   &rarr; 100 (BASE)  = 4 &times; 100 = 400</li>
+ *   <li>Aug 5–15  &rarr;  80 (PLAN)  = 11 &times; 80 = 880</li>
+ *   <li>Aug 16–30 &rarr; 100 (BASE)  = 15 &times; 100 = 1500</li>
+ *   <li>Aug 31 is the checkout night and is NOT charged.</li>
+ *   <li>total = 2780</li>
+ * </ul>
  *
- * Worked example — base 100, "Summer Promo" override 80 for Aug 5–15,
- * stay Aug 1 (check-in) to Aug 31 (check-out) = 30 nights:
- *   Aug 1–4   -> 100 (BASE)   =  4 x 100 = 400
- *   Aug 5–15  ->  80 (PLAN)   = 11 x  80 = 880
- *   Aug 16–30 -> 100 (BASE)   = 15 x 100 = 1500
- *   Aug 31 is the checkout night and is NOT charged.
- *   total = 2780
+ * <p><strong>Thread safety.</strong> A stateless Spring singleton holding only its
+ * injected repository; safe for concurrent request threads.
  */
 @Service
 @RequiredArgsConstructor
@@ -59,8 +69,24 @@ public class PricingService {
     }
 
     /**
-     * Prices a stay night-by-night. Assumes checkOut is strictly after checkIn
-     * (validated upstream in ReservationRequestDTO / the booking service).
+     * Prices a stay night-by-night, returning the per-night breakdown and total.
+     *
+     * <p>Loads only the rate-plan override rows that fall inside the stay and walks
+     * the half-open interval {@code [checkIn, checkOut)}, so the checkout date is
+     * never a charged night. Assumes {@code checkOut} is strictly after
+     * {@code checkIn} (validated upstream in {@code ReservationRequestDTO} and the
+     * booking service). Not transactional in its own right; when invoked from a
+     * booking it participates in the caller's transaction.
+     *
+     * @param roomType the room type being priced; supplies the base rate and currency.
+     * @param ratePlan the chosen rate plan; must belong to {@code roomType}.
+     * @param checkIn  the first night of the stay (inclusive).
+     * @param checkOut the checkout date (exclusive); must be strictly after
+     *                 {@code checkIn}.
+     * @return a {@link PriceQuote} carrying the currency, total, and ordered per-night
+     *         breakdown.
+     * @throws IllegalArgumentException if the rate plan does not belong to the given
+     *         room type.
      */
     public PriceQuote quote(RoomType roomType, RatePlan ratePlan,
                             LocalDate checkIn, LocalDate checkOut) {

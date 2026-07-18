@@ -37,6 +37,18 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
 import com.Abdelwahab.RoomBooking.repository.PaymentRepository;
 import com.Abdelwahab.RoomBooking.repository.ReservationRepository;
 
+/**
+ * Plain Mockito unit test for PaymentService — no Spring context is loaded
+ * (@ExtendWith(MockitoExtension.class); the PaymentRepository and ReservationRepository
+ * are @Mock stubs, and the Spring Security SecurityContext/Authentication are stubbed
+ * by hand via SecurityContextHolder to stand in for the authenticated caller,
+ * cleared after each test). It verifies the payment settlement logic in isolation: a
+ * full payment confirms the reservation and clears its timed hold, a partial payment
+ * leaves it PENDING with a running balance, the final instalment confirms once the
+ * balance clears, and each guard rejects with the correct domain exception —
+ * overpayment, a non-PENDING reservation, an expired hold (all PaymentException) and a
+ * non-owner (IllegalArgumentException) — persisting nothing.
+ */
 @ExtendWith(MockitoExtension.class)
 public class PaymentServiceTest {
 
@@ -107,6 +119,12 @@ public class PaymentServiceTest {
         SecurityContextHolder.setContext(securityContext);
     }
 
+    /**
+     * Given the owner pays the full 300 balance on a PENDING reservation with no prior
+     * payments; when the payment settles; then the payment is SUCCESS via FRONT_DESK in
+     * USD with a zero balance, the reservation flips to CONFIRMED, its timed hold is
+     * cleared, and the reservation is persisted.
+     */
     @Test
     public void pay_fullAmount_confirmsReservation_andClearsHold() {
         mockSecurityContext("john@example.com");
@@ -134,6 +152,12 @@ public class PaymentServiceTest {
         verify(reservationRepository, times(1)).save(sampleReservation);
     }
 
+    /**
+     * Given the owner pays 100 of the 300 total with no prior payments;
+     * when the payment settles; then the reservation stays PENDING with a 200 balance
+     * due, the hold is left open (expiry not cleared), and the reservation is not
+     * re-saved — a partial payment does not confirm.
+     */
     @Test
     public void pay_partialAmount_leavesReservationPending_withBalanceDue() {
         mockSecurityContext("john@example.com");
@@ -154,6 +178,12 @@ public class PaymentServiceTest {
         verify(reservationRepository, never()).save(any(Reservation.class));
     }
 
+    /**
+     * Given 200 has already been paid and the owner pays the remaining 100;
+     * when the payment settles; then the cumulative amount reaches the 300 total, the
+     * balance is zero, and the reservation flips to CONFIRMED — confirmation triggers
+     * only once the balance is fully cleared.
+     */
     @Test
     public void pay_finalInstalment_confirmsOnceBalanceCleared() {
         // 200 already paid; this 100 clears the 300 total.
@@ -171,6 +201,11 @@ public class PaymentServiceTest {
         assertThat(sampleReservation.getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
     }
 
+    /**
+     * Given the owner attempts to pay 500 against a 300 balance;
+     * when the payment is submitted; then a PaymentException (exceeds the balance due) is
+     * raised and no payment is saved — overpayment is rejected.
+     */
     @Test
     public void pay_rejectsAmountExceedingBalanceDue() {
         mockSecurityContext("john@example.com");
@@ -185,6 +220,11 @@ public class PaymentServiceTest {
         verify(paymentRepository, never()).save(any(Payment.class));
     }
 
+    /**
+     * Given the reservation is already CONFIRMED (not awaiting payment);
+     * when a payment is submitted; then a PaymentException (not awaiting payment) is
+     * raised and no payment is saved.
+     */
     @Test
     public void pay_rejectsNonPendingReservation() {
         sampleReservation.setStatus(ReservationStatus.CONFIRMED);
@@ -199,6 +239,11 @@ public class PaymentServiceTest {
         verify(paymentRepository, never()).save(any(Payment.class));
     }
 
+    /**
+     * Given the reservation's hold expired a minute ago;
+     * when a payment is submitted; then a PaymentException (payment window) is raised and
+     * no payment is saved — a lapsed hold can no longer be paid.
+     */
     @Test
     public void pay_rejectsExpiredHold() {
         sampleReservation.setHoldExpiresAt(LocalDateTime.now().minusMinutes(1));
@@ -213,6 +258,11 @@ public class PaymentServiceTest {
         verify(paymentRepository, never()).save(any(Payment.class));
     }
 
+    /**
+     * Given the authenticated caller is not the reservation's owner;
+     * when a payment is submitted; then an IllegalArgumentException (permission) is raised
+     * and no payment is saved — the ownership guard holds.
+     */
     @Test
     public void pay_rejectsWhenGuestDoesNotOwnReservation() {
         mockSecurityContext("someone-else@example.com");

@@ -27,6 +27,15 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
 import com.Abdelwahab.RoomBooking.repository.HotelRepository;
 import com.Abdelwahab.RoomBooking.repository.RoomTypeRepository;
 
+/**
+ * Plain Mockito unit test for RoomTypeService — no Spring context is loaded
+ * (@ExtendWith(MockitoExtension.class); the RoomTypeRepository and HotelRepository
+ * collaborators are @Mock stubs injected into the service). It exercises the
+ * hotel-scoped room-type CRUD in isolation: listing and creating validate the parent
+ * hotel first, create attaches the resolved hotel to the persisted entity, and the
+ * cross-hotel guard blocks updating or deleting a room type through the wrong hotel's
+ * path — each failure surfacing as ResourceNotFoundException with no write performed.
+ */
 @ExtendWith(MockitoExtension.class)
 public class RoomTypeServiceTest {
     @Mock
@@ -68,6 +77,11 @@ public class RoomTypeServiceTest {
         );
     }
 
+    /**
+     * Given the hotel exists and owns one room type;
+     * when its room types are listed; then a single mapped DTO with the expected id and
+     * name is returned, after the parent hotel's existence is confirmed.
+     */
     @Test
     public void getRoomTypesByHotel_success() {
         Long hotelId = 1L;
@@ -85,6 +99,11 @@ public class RoomTypeServiceTest {
         verify(roomTypeRepository, times(1)).findByHotelId(hotelId);
     }
 
+    /**
+     * Given the hotel does not exist;
+     * when its room types are listed; then a ResourceNotFoundException naming the id is
+     * raised and the room-type repository is never queried.
+     */
     @Test
     public void getRoomTypesByHotel_WhenHotelNotFound_ThrowsException() {
         Long hotelId = 99L;
@@ -98,6 +117,11 @@ public class RoomTypeServiceTest {
         verify(roomTypeRepository, times(0)).findByHotelId(hotelId);
     }
 
+    /**
+     * Given the parent hotel exists and the repository assigns an id on save;
+     * when a room type is created under it; then the returned DTO carries the expected
+     * name and the captured persisted entity is attached to that hotel.
+     */
     @Test
     public void createRoomType_attachesHotel_andPersists() {
         Long hotelId = 1L;
@@ -121,6 +145,11 @@ public class RoomTypeServiceTest {
         assertThat(captor.getValue().getHotel().getId()).isEqualTo(hotelId);
     }
 
+    /**
+     * Given the parent hotel does not exist;
+     * when a room type creation is attempted; then a ResourceNotFoundException naming the
+     * id is raised and no save occurs.
+     */
     @Test
     public void createRoomType_WhenHotelNotFound_ThrowsException() {
         Long hotelId = 99L;
@@ -136,6 +165,12 @@ public class RoomTypeServiceTest {
         verify(roomTypeRepository, times(0)).save(any());
     }
 
+    /**
+     * Given the target room type belongs to hotel 1 but the update is scoped to hotel 2;
+     * when the update is attempted; then a ResourceNotFoundException reporting the
+     * cross-hotel mismatch is raised and no save occurs — the cross-hotel guard blocks
+     * mutating a room type through the wrong hotel's path.
+     */
     @Test
     public void updateRoomType_WhenBelongsToDifferentHotel_ThrowsException() {
         // sampleRoomType belongs to hotel 1; caller targets hotel 2's path.
@@ -151,6 +186,11 @@ public class RoomTypeServiceTest {
         verify(roomTypeRepository, times(0)).save(any());
     }
 
+    /**
+     * Given the target room type belongs to hotel 1 but the delete is scoped to hotel 2;
+     * when the delete is attempted; then a ResourceNotFoundException reporting the
+     * cross-hotel mismatch is raised and delete is never called.
+     */
     @Test
     public void deleteRoomType_WhenBelongsToDifferentHotel_ThrowsException() {
         when(roomTypeRepository.findById(1L)).thenReturn(Optional.of(sampleRoomType));

@@ -18,10 +18,19 @@ import lombok.RequiredArgsConstructor;
 /**
  * Manages a hotel's catalogue of optional add-ons (airport transfer, spa, etc.).
  *
- * Reads (browsing available add-ons) are public; writes are admin-only, gated by
- * the /api/hotels/** rules in SecurityConfig plus @PreAuthorize on the controller.
- * Every write is scoped to the hotel in the path, so one hotel's add-on can never
- * be mutated through another hotel's URL.
+ * <p><strong>Responsibility.</strong> Owns the {@link Addon} definitions a hotel
+ * offers. These catalogue entries are the source of truth for pricing and
+ * availability that {@link ReservationAddonService} freezes onto a booking at
+ * attach time.
+ *
+ * <p><strong>Security &amp; scope.</strong> Reads (browsing available add-ons) are
+ * public; writes are admin-only, gated by the {@code /api/hotels/**} rules in
+ * {@code SecurityConfig} plus {@code @PreAuthorize} on the controller. Every write
+ * is scoped to the hotel in the path, so one hotel's add-on can never be mutated
+ * through another hotel's URL.
+ *
+ * <p><strong>Thread safety.</strong> A stateless Spring singleton holding only its
+ * injected repositories; safe for concurrent request threads.
  */
 @Service
 @RequiredArgsConstructor
@@ -30,7 +39,19 @@ public class AddonService {
     private final AddonRepository addonRepository;
     private final HotelRepository hotelRepository;
 
-    /** Add-ons a guest can actually book right now — available only. */
+    /**
+     * Lists the add-ons a guest can actually book right now for the given hotel —
+     * available entries only.
+     *
+     * <p>Read-only transactional: a pure query, marked {@code readOnly} to skip
+     * dirty-checking overhead.
+     *
+     * @param hotelId the hotel whose catalogue to browse; must identify an existing
+     *                hotel.
+     * @return the available add-ons as {@link AddonResponseDTO} views; an empty list
+     *         if none are available.
+     * @throws ResourceNotFoundException if no hotel exists with the given id.
+     */
     @Transactional(readOnly = true)
     public List<AddonResponseDTO> getAvailableAddons(Long hotelId) {
         requireHotel(hotelId);
@@ -39,6 +60,20 @@ public class AddonService {
                 .toList();
     }
 
+    /**
+     * Creates a catalogue add-on under the given hotel.
+     *
+     * <p>Defaults availability to {@code true} when the request leaves it unset, so
+     * a new add-on is sellable unless explicitly withheld. Read-write transactional:
+     * the insert commits atomically.
+     *
+     * @param hotelId the owning hotel; must identify an existing hotel.
+     * @param request the add-on's attributes (name, category, price, price unit, and
+     *                optional availability flag); must be non-{@code null} and valid.
+     * @return an {@link AddonResponseDTO} view of the persisted add-on, including its
+     *         generated id.
+     * @throws ResourceNotFoundException if no hotel exists with the given id.
+     */
     @Transactional
     public AddonResponseDTO createAddon(Long hotelId, AddonRequestDTO request) {
         Hotel hotel = hotelRepository.findById(hotelId)
@@ -55,6 +90,24 @@ public class AddonService {
         return toDTO(addonRepository.save(addon));
     }
 
+    /**
+     * Updates a catalogue add-on in place, scoped to its owning hotel.
+     *
+     * <p>The availability flag is only changed when the request supplies one, so a
+     * partial update never silently withdraws an add-on. Read-write transactional:
+     * the resolved entity is mutated and flushed on commit via JPA dirty-checking.
+     *
+     * <p>Note this rewrites the catalogue price only; add-on lines already frozen
+     * onto existing reservations are unaffected.
+     *
+     * @param hotelId the hotel the add-on must belong to.
+     * @param addonId the add-on to update.
+     * @param request the replacement attribute values; must be non-{@code null} and
+     *                valid. A {@code null} availability leaves the current flag intact.
+     * @return an {@link AddonResponseDTO} view of the updated add-on.
+     * @throws ResourceNotFoundException if the add-on does not exist or does not
+     *         belong to the given hotel; thrown before any mutation.
+     */
     @Transactional
     public AddonResponseDTO updateAddon(Long hotelId, Long addonId, AddonRequestDTO request) {
         Addon addon = resolveWithinHotel(hotelId, addonId);
@@ -69,6 +122,19 @@ public class AddonService {
         return toDTO(addonRepository.save(addon));
     }
 
+    /**
+     * Deletes a catalogue add-on, scoped to its owning hotel.
+     *
+     * <p>Read-write transactional. An add-on still referenced by a booking cannot be
+     * removed: a {@code reservation_addon} foreign key with {@code ON DELETE RESTRICT}
+     * blocks the delete at the database layer, which is the final guard against
+     * orphaning a booked line.
+     *
+     * @param hotelId the hotel the add-on must belong to.
+     * @param addonId the add-on to delete.
+     * @throws ResourceNotFoundException if the add-on does not exist or does not
+     *         belong to the given hotel.
+     */
     @Transactional
     public void deleteAddon(Long hotelId, Long addonId) {
         Addon addon = resolveWithinHotel(hotelId, addonId);

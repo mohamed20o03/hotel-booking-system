@@ -25,12 +25,19 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * One night of a reservation, with its price frozen at booking time.
+ * One night of a {@link Reservation}, with its price frozen at booking time.
  *
- * Storing the breakdown (not just the grand total) is what real PMS/folio systems
- * do: it supports partial cancellations, stay extensions, per-night taxes, refunds,
- * and revenue reporting (ADR/RevPAR). The sum of rateAmount across a reservation's
- * nights equals Reservation.totalPrice.
+ * <p><strong>Domain concept.</strong> Maps to the {@code reservation_night} table, one row
+ * per date in the stay. Storing the breakdown (not just the grand total) is what real
+ * PMS/folio systems do: it supports partial cancellations, stay extensions, per-night
+ * taxes, refunds, and revenue reporting (ADR/RevPAR). The sum of {@link #rateAmount} across
+ * a reservation's nights equals {@link Reservation#getTotalPrice()}.
+ *
+ * <p><strong>Relationships.</strong> Owned by its {@link Reservation} ({@code @ManyToOne},
+ * cascade delete); the reservation drives its full lifecycle via cascade and orphan removal.
+ *
+ * <p><strong>Invariants.</strong> A <strong>unique</strong> constraint on
+ * ({@code reservation_id}, {@code date}) guarantees a single priced row per night.
  */
 @Entity
 @Table(name = "reservation_night", uniqueConstraints = @UniqueConstraint(columnNames = {"reservation_id", "date"}))
@@ -56,7 +63,7 @@ public class ReservationNight {
     @Column(name = "rate_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal rateAmount;
 
-    // Whether this night was priced from a rate plan override or the base rate.
+    /** Whether this night was priced from a rate-plan override or the base rate. See {@link RateSource}. */
     @Enumerated(EnumType.STRING)
     @Column(name = "source", nullable = false, length = 10)
     private RateSource source;

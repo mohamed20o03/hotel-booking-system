@@ -18,6 +18,19 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * A physical, individually numbered room — the unit assigned to a guest at check-in.
+ *
+ * <p><strong>Domain concept.</strong> Maps to the {@code room} table. A room is a concrete
+ * bricks-and-mortar unit (number, floor, building). It is deliberately distinct from
+ * {@link RoomType}: the system sells and holds availability by <em>room type</em> count,
+ * and only pins a specific {@code Room} onto a {@link Reservation} at check-in (see
+ * {@code Reservation.assignedRoom}). A room is also the target of a
+ * {@link MaintenanceBlock} that takes it out of service for a date range.
+ *
+ * <p><strong>Relationships.</strong> Owned by a {@link RoomType} ({@code @ManyToOne},
+ * cascade delete).
+ */
 @Entity
 @Table(name = "room")
 @Getter
@@ -30,7 +43,8 @@ public class Room {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
+
+    /** Owning room type. Deleting the room type cascades to its rooms. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "room_type_id", referencedColumnName = "id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)

@@ -13,9 +13,44 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+/**
+ * Centralized, application-wide exception translation for the REST API.
+ *
+ * <p><strong>Architectural role.</strong> As a {@link RestControllerAdvice}, this
+ * class intercepts exceptions thrown from any controller and maps them to HTTP
+ * status codes and a uniform {@link ErrorResponse} body. It is the single source
+ * of truth for the API's error contract, keeping controllers and services free of
+ * response-shaping concerns.
+ *
+ * <p><strong>Status mapping.</strong>
+ * <ul>
+ *   <li>{@link ResourceNotFoundException} &rarr; {@code 404 NOT FOUND}</li>
+ *   <li>{@link NoAvailabilityException}, {@link DuplicateResourceException},
+ *       {@link PaymentException} &rarr; {@code 409 CONFLICT}</li>
+ *   <li>{@link org.springframework.security.access.AccessDeniedException} &rarr;
+ *       {@code 403 FORBIDDEN}</li>
+ *   <li>{@link org.springframework.web.bind.MethodArgumentNotValidException} and
+ *       {@link IllegalArgumentException} &rarr; {@code 400 BAD REQUEST}</li>
+ *   <li>any other {@link Exception} &rarr; {@code 500 INTERNAL SERVER ERROR}</li>
+ * </ul>
+ *
+ * <p><strong>Authentication behaviour.</strong> The security stack does not register
+ * an {@code AuthenticationEntryPoint}. Consequently, unauthenticated requests to
+ * protected endpoints are rejected as {@code 403 FORBIDDEN} rather than the
+ * conventional {@code 401 UNAUTHORIZED}.
+ *
+ * @see ErrorResponse
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-    
+
+    /**
+     * Handles {@link ResourceNotFoundException}, raised when a hotel, room type,
+     * reservation, or guest cannot be found.
+     *
+     * @return {@code 404 NOT FOUND} with an {@link ErrorResponse} carrying the
+     *         exception message
+     */
     // 1. Handle Not Found (404)
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
@@ -31,6 +66,16 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
     }
 
+    /**
+     * Handles the family of business-conflict exceptions:
+     * {@link NoAvailabilityException}, {@link DuplicateResourceException}, and
+     * {@link PaymentException}. Each represents a request that clashes with the
+     * current state of the domain (no inventory, a uniqueness violation, or an
+     * unpayable reservation).
+     *
+     * @return {@code 409 CONFLICT} with an {@link ErrorResponse} carrying the
+     *         exception message
+     */
     // 2. Handle Business Conflicts / Duplicates (409)
     @ExceptionHandler({NoAvailabilityException.class, DuplicateResourceException.class, PaymentException.class})
     public ResponseEntity<ErrorResponse> handleConflictExceptions(
@@ -46,6 +91,15 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
     }
 
+    /**
+     * Handles {@link AccessDeniedException}, raised by {@code @PreAuthorize} method
+     * security and URL authorization rules when a caller lacks the required role, and
+     * — in the absence of an {@code AuthenticationEntryPoint} — also when an
+     * unauthenticated caller reaches a protected endpoint.
+     *
+     * @return {@code 403 FORBIDDEN} with a generic permission-denied
+     *         {@link ErrorResponse}
+     */
     // 2b. Handle Authorization Failures (403)
     // Thrown by @PreAuthorize / URL rules when an authenticated user lacks the role.
     // Must be re-mapped explicitly, otherwise the catch-all below would turn it into a 500.
@@ -63,6 +117,14 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
     }
 
+    /**
+     * Handles {@link MethodArgumentNotValidException}, raised when a
+     * {@code @Valid} request body fails bean-validation constraints. All field-level
+     * messages are concatenated into a single, comma-separated description.
+     *
+     * @return {@code 400 BAD REQUEST} with an {@link ErrorResponse} listing every
+     *         validation failure
+     */
     // 3. Handle Validation Errors from @Valid (400)
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationExceptions(
@@ -84,6 +146,15 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
+    /**
+     * Handles {@link IllegalArgumentException}, raised for invalid-state or
+     * malformed-request conditions that are not bean-validation failures — for
+     * example, a check-out date that precedes the check-in date, or an operation
+     * attempted against a reservation in the wrong state.
+     *
+     * @return {@code 400 BAD REQUEST} with an {@link ErrorResponse} carrying the
+     *         exception message
+     */
     // Handle generic bad requests (e.g., check-out date before check-in date)
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
@@ -99,6 +170,12 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
+    /**
+     * Catch-all for any exception not matched by a more specific handler above,
+     * guarding against leaking stack traces or internal detail to clients.
+     *
+     * @return {@code 500 INTERNAL SERVER ERROR} with a generic {@link ErrorResponse}
+     */
     // 4. Catch-All for Unexpected Server Errors (500)
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(

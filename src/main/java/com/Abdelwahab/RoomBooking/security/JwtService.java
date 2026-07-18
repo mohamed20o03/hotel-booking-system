@@ -19,17 +19,24 @@ import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 
 /**
- * JwtService — handles all JWT creation, parsing, and validation.
+ * Handles all JSON Web Token (JWT) creation, parsing, and validation for the API.
  *
- * A JWT (JSON Web Token) has 3 parts separated by dots:
- *   [Header].[Payload].[Signature]
+ * <p>A JWT has three dot-separated parts — {@code [Header].[Payload].[Signature]}:
+ * <ul>
+ *   <li><strong>Header</strong> — the signing algorithm (here, HS256)</li>
+ *   <li><strong>Payload</strong> — the claims (subject email, issued-at, expiry)</li>
+ *   <li><strong>Signature</strong> — an HMAC-SHA256 hash of the header and payload,
+ *       keyed by the server's secret</li>
+ * </ul>
+ * The signature makes the token tamper-proof: any modification to the payload
+ * invalidates it, and the token is rejected on the next parse.
  *
- *   - Header:    Algorithm used to sign (e.g. HS256)
- *   - Payload:   Claims — data stored in the token (email, issued date, expiry)
- *   - Signature: HMAC-SHA256 hash of Header+Payload using your secret key
- *
- * The signature makes the token tamper-proof. If anyone modifies the payload,
- * the signature will no longer match and the token is rejected.
+ * <p><strong>Signing key.</strong> Tokens are signed with HS256 (symmetric HMAC)
+ * using a Base64-encoded secret read from {@code application.yaml}; the same key
+ * both signs and verifies. {@link #generateToken} issues a token subject-scoped to
+ * the guest's email, {@link #extractUsername} and {@code extractAllClaims} read it
+ * back, and {@link #isTokenValid} confirms the subject matches the loaded principal
+ * and the token has not expired.
  */
 @Service
 public class JwtService {

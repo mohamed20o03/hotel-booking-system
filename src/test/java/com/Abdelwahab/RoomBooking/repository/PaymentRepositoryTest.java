@@ -51,6 +51,11 @@ public class PaymentRepositoryTest {
         reservation = persistReservation();
     }
 
+    /**
+     * Given a reservation with no payments;
+     * when the successful-payment sum is queried; then it returns 0 — the COALESCE turns
+     * SUM's NULL (no rows) into zero rather than failing.
+     */
     @Test
     public void sum_returnsZero_whenNoPaymentsExist() {
         // COALESCE must turn SUM's NULL (no rows) into 0, not blow up.
@@ -59,6 +64,11 @@ public class PaymentRepositoryTest {
         assertThat(total).isEqualByComparingTo("0");
     }
 
+    /**
+     * Given two SUCCESS payments of 150 and 100 on the reservation;
+     * when the successful-payment sum is queried; then it returns 250.00 — the aggregate
+     * adds the successful amounts.
+     */
     @Test
     public void sum_addsOnlySuccessfulPayments() {
         persistPayment(reservation, "150.00", "SUCCESS");
@@ -69,6 +79,11 @@ public class PaymentRepositoryTest {
         assertThat(total).isEqualByComparingTo("250.00");
     }
 
+    /**
+     * Given one SUCCESS payment of 150 alongside PENDING, FAILED and REFUNDED payments;
+     * when the successful-payment sum is queried; then it returns 150.00 — the
+     * status = 'SUCCESS' filter excludes all other statuses.
+     */
     @Test
     public void sum_ignoresNonSuccessfulStatuses() {
         persistPayment(reservation, "150.00", "SUCCESS");
@@ -81,6 +96,11 @@ public class PaymentRepositoryTest {
         assertThat(total).isEqualByComparingTo("150.00");
     }
 
+    /**
+     * Given only PENDING and FAILED payments on the reservation;
+     * when the successful-payment sum is queried; then it returns 0 — with no SUCCESS
+     * rows the filtered SUM still coalesces to zero.
+     */
     @Test
     public void sum_returnsZero_whenPaymentsExistButNoneSucceeded() {
         persistPayment(reservation, "150.00", "PENDING");
@@ -91,6 +111,11 @@ public class PaymentRepositoryTest {
         assertThat(total).isEqualByComparingTo("0");
     }
 
+    /**
+     * Given a SUCCESS payment of 150 on this reservation and 500 on another;
+     * when the successful-payment sum is queried for this reservation; then it returns
+     * 150.00 — the aggregate is scoped to the given reservation id.
+     */
     @Test
     public void sum_isScopedToTheGivenReservation() {
         persistPayment(reservation, "150.00", "SUCCESS");

@@ -69,6 +69,12 @@ public class RoomTypeInventoryRepositoryTest {
 
     // ── findForStay ───────────────────────────────────────────────
 
+    /**
+     * Given inventory rows for all three stay nights plus the checkout night;
+     * when findForStay runs over [check-in, checkout); then exactly the three stay nights
+     * are returned and the checkout night is excluded — the query honours the half-open
+     * interval.
+     */
     @Test
     public void findForStay_returnsOneRowPerNight_inTheHalfOpenInterval() {
         persistInventory(roomType, CHECK_IN, 5, 0);
@@ -82,6 +88,11 @@ public class RoomTypeInventoryRepositoryTest {
                 .containsExactlyInAnyOrder(CHECK_IN, NIGHT_11, NIGHT_12); // 3 nights, not the 13th
     }
 
+    /**
+     * Given only two of the three stay nights have inventory rows;
+     * when findForStay runs; then it returns just those two rows — the missing night is
+     * the gap the service reads as "not open for booking".
+     */
     @Test
     public void findForStay_returnsFewerRows_whenANightIsNotOpen() {
         // Only 2 of the 3 nights are open -> the gap the service turns into "unavailable"
@@ -93,6 +104,11 @@ public class RoomTypeInventoryRepositoryTest {
         assertThat(rows).hasSize(2);
     }
 
+    /**
+     * Given inventory rows for the same night exist under two different room types;
+     * when findForStay runs for one of them; then only that room type's row is returned —
+     * the query is scoped to the room type.
+     */
     @Test
     public void findForStay_isScopedToRoomType() {
         persistInventory(roomType, CHECK_IN, 5, 0);
@@ -109,6 +125,12 @@ public class RoomTypeInventoryRepositoryTest {
 
     // ── lockForStay ───────────────────────────────────────────────
 
+    /**
+     * Given the three nightly rows are persisted out of date order;
+     * when lockForStay runs; then the rows come back sorted ascending by date — the
+     * query's ORDER BY guarantees a stable lock-acquisition order (which also avoids
+     * deadlocks between concurrent lockers).
+     */
     @Test
     public void lockForStay_returnsRowsOrderedByDate() {
         // Persist out of order; the query's ORDER BY date must still sort them.

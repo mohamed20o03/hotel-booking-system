@@ -90,6 +90,11 @@ public class MaintenanceControllerTest {
                 LocalDate.of(2026, 12, 10), LocalDate.of(2026, 12, 13), "Repainting");
     }
 
+    /**
+     * Given an authenticated ROLE_ADMIN and the service returning the created block;
+     * when the admin POSTs a valid body to /api/maintenance; then the response is 201
+     * Created with the created block's id and room number, and the service is invoked.
+     */
     // 1. Happy path — an admin with a valid body gets 201 and the created block.
     @Test
     @WithMockUser(roles = "ADMIN")
@@ -107,6 +112,11 @@ public class MaintenanceControllerTest {
         verify(maintenanceService).createBlock(any(MaintenanceBlockRequestDTO.class));
     }
 
+    /**
+     * Given an authenticated but non-admin ROLE_USER;
+     * when they POST a valid body to /api/maintenance; then the response is 403 Forbidden
+     * and the service is never reached — the endpoint is admin-only.
+     */
     // 2. RBAC — a plain ROLE_USER is forbidden, and the service is never reached.
     @Test
     @WithMockUser(roles = "USER")
@@ -119,6 +129,11 @@ public class MaintenanceControllerTest {
         verify(maintenanceService, never()).createBlock(any());
     }
 
+    /**
+     * Given no authenticated identity;
+     * when an anonymous caller POSTs a valid body to /api/maintenance; then the response
+     * is 403 Forbidden (not 401) and the service is never reached.
+     */
     // 3. Auth — an anonymous request is rejected before hitting the controller.
     @Test
     @WithAnonymousUser
@@ -131,6 +146,11 @@ public class MaintenanceControllerTest {
         verify(maintenanceService, never()).createBlock(any());
     }
 
+    /**
+     * Given an authenticated ROLE_ADMIN and a body with roomId omitted;
+     * when it is POSTed to /api/maintenance; then @Valid rejects the request with 400
+     * Bad Request before the service is called.
+     */
     // 4. Validation — a missing required field fails @Valid with 400, pre-service.
     @Test
     @WithMockUser(roles = "ADMIN")
@@ -146,6 +166,11 @@ public class MaintenanceControllerTest {
         verify(maintenanceService, never()).createBlock(any());
     }
 
+    /**
+     * Given an authenticated ROLE_ADMIN and the service raising NoAvailabilityException;
+     * when the admin POSTs a valid body to /api/maintenance; then GlobalExceptionHandler
+     * maps it to 409 Conflict with a body status of 409 — a domain conflict, not a 500.
+     */
     // 5. Error mapping — a domain conflict surfaces as 409 via GlobalExceptionHandler.
     @Test
     @WithMockUser(roles = "ADMIN")

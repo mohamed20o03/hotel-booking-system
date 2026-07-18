@@ -12,6 +12,11 @@ import org.junit.jupiter.api.Test;
  */
 public class GuestTest {
 
+    /**
+     * Given a guest whose role column is ROLE_ADMIN;
+     * when its Spring Security authorities are read; then they contain exactly
+     * ROLE_ADMIN — authorities are derived straight from the persisted role.
+     */
     @Test
     public void getAuthorities_reflectsRoleField() {
         Guest admin = Guest.builder().role("ROLE_ADMIN").build();
@@ -21,6 +26,11 @@ public class GuestTest {
             .containsExactly("ROLE_ADMIN");
     }
 
+    /**
+     * Given a guest built with no role set;
+     * when its role and authorities are read; then the role defaults to ROLE_USER and the
+     * authorities contain exactly ROLE_USER — the safe default for a new principal.
+     */
     @Test
     public void role_defaultsToUser_whenNotSet() {
         Guest guest = Guest.builder().build();

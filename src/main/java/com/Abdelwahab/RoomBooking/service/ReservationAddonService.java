@@ -25,11 +25,26 @@ import lombok.RequiredArgsConstructor;
  * Attaches optional add-ons (spa, transfer, ...) to a reservation and keeps the
  * reservation's frozen total in step.
  *
- * Add-ons may only be changed while the reservation is a live PENDING hold — once
- * it is paid (CONFIRMED) the total has been settled, so changing extras would
- * desync what the guest paid from what they owe. The add-on's unit price is frozen
- * from the catalogue at attach time (never trusted from the client), so a later
- * catalogue price change never rewrites an existing booking's line.
+ * <p><strong>Responsibility.</strong> Manages the {@link ReservationAddon} lines on
+ * a booking and adjusts the reservation's stored total as lines are added or
+ * removed, so the amount the guest ultimately pays reflects the extras.
+ *
+ * <p><strong>State-machine constraint.</strong> Add-ons may only be changed while
+ * the reservation is a live {@code PENDING} hold — once it is paid
+ * ({@code CONFIRMED}) the total has been settled, so changing extras would desync
+ * what the guest paid from what they owe. Every mutating call therefore requires a
+ * {@code PENDING} status.
+ *
+ * <p><strong>Price integrity.</strong> The add-on's unit price is frozen from the
+ * catalogue at attach time and never trusted from the client, so a later catalogue
+ * price change never rewrites an existing booking's line.
+ *
+ * <p><strong>Security &amp; scope.</strong> Every operation is ownership-scoped: the
+ * caller is resolved from the security context and must own the reservation, which
+ * defends against tampering with another guest's booking (IDOR).
+ *
+ * <p><strong>Thread safety.</strong> A stateless Spring singleton holding only its
+ * injected repositories; safe for concurrent request threads.
  */
 @Service
 @RequiredArgsConstructor
@@ -39,6 +54,30 @@ public class ReservationAddonService {
     private final ReservationAddonRepository reservationAddonRepository;
     private final AddonRepository addonRepository;
 
+    /**
+     * Attaches an add-on line to the caller's own {@code PENDING} reservation and
+     * rolls its cost into the reservation total.
+     *
+     * <p>Validates that the reservation is owned by the authenticated guest and still
+     * {@code PENDING}, that the add-on belongs to the same hotel as the reservation,
+     * and that the add-on is currently available. The unit price is frozen from the
+     * catalogue (never taken from the request). Read-write transactional: the new
+     * line and the bumped reservation total commit together, so payment will collect
+     * the added amount.
+     *
+     * @param reservationId the reservation to extend; must be owned by the caller and
+     *                      in {@code PENDING} state.
+     * @param request       the add-on selection (add-on id and quantity); must be
+     *                      non-{@code null} and valid.
+     * @return a {@link ReservationAddonResponseDTO} view of the created line,
+     *         including its frozen unit price and line total.
+     * @throws ResourceNotFoundException if the reservation or the add-on does not
+     *         exist.
+     * @throws IllegalArgumentException  if the caller does not own the reservation,
+     *         the reservation is not {@code PENDING}, the add-on belongs to a
+     *         different hotel, or the add-on is not available. Rolls back the
+     *         transaction so neither the line nor the total change persists.
+     */
     @Transactional
     public ReservationAddonResponseDTO attachAddon(Long reservationId, ReservationAddonRequestDTO request) {
         Reservation reservation = requireOwnedModifiableReservation(reservationId);
@@ -77,6 +116,20 @@ public class ReservationAddonService {
         return toDTO(line);
     }
 
+    /**
+     * Lists the add-on lines attached to the caller's own reservation.
+     *
+     * <p>Ownership is enforced before reading, so a guest can only see the extras on
+     * their own booking regardless of its status. Read-only transactional: a pure
+     * query, marked {@code readOnly} to skip dirty-checking overhead.
+     *
+     * @param reservationId the reservation whose add-ons to list; must be owned by
+     *                      the caller.
+     * @return the add-on lines as {@link ReservationAddonResponseDTO} views; an empty
+     *         list if none are attached.
+     * @throws ResourceNotFoundException if the reservation does not exist.
+     * @throws IllegalArgumentException  if the caller does not own the reservation.
+     */
     @Transactional(readOnly = true)
     public List<ReservationAddonResponseDTO> getAddons(Long reservationId) {
         requireOwnedReservation(reservationId);
@@ -85,6 +138,23 @@ public class ReservationAddonService {
                 .toList();
     }
 
+    /**
+     * Removes an add-on line from the caller's own {@code PENDING} reservation and
+     * subtracts its cost from the reservation total.
+     *
+     * <p>Requires ownership and a {@code PENDING} status, and verifies the line
+     * actually belongs to the named reservation before removing it. Read-write
+     * transactional: the reduced total and the line deletion commit together.
+     *
+     * @param reservationId      the reservation to modify; must be owned by the
+     *                           caller and in {@code PENDING} state.
+     * @param reservationAddonId the add-on line to remove; must belong to that
+     *                           reservation.
+     * @throws ResourceNotFoundException if the reservation or the line does not
+     *         exist, or the line belongs to a different reservation.
+     * @throws IllegalArgumentException  if the caller does not own the reservation or
+     *         it is not {@code PENDING}.
+     */
     @Transactional
     public void detachAddon(Long reservationId, Long reservationAddonId) {
         Reservation reservation = requireOwnedModifiableReservation(reservationId);

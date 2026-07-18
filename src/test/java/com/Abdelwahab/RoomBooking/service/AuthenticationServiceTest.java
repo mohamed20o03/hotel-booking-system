@@ -27,6 +27,15 @@ import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.repository.GuestRepository;
 import com.Abdelwahab.RoomBooking.security.JwtService;
 
+/**
+ * Plain Mockito unit test for AuthenticationService — no Spring context is loaded
+ * (@ExtendWith(MockitoExtension.class); GuestService, GuestRepository, JwtService and
+ * the Spring Security AuthenticationManager are @Mock stubs injected into the service).
+ * It verifies the registration and login orchestration in isolation: that registration
+ * delegates to GuestService and only then mints a token, that login runs credentials
+ * through the AuthenticationManager before issuing a token, and that a failed
+ * authentication short-circuits before any token is generated.
+ */
 @ExtendWith(MockitoExtension.class)
 public class AuthenticationServiceTest {
 
@@ -54,6 +63,11 @@ public class AuthenticationServiceTest {
 
     // ── register ──────────────────────────────────────────────────
 
+    /**
+     * Given GuestService will persist the account and the repository then finds the new
+     * guest for token minting; when a guest registers; then the returned token is the
+     * one JwtService issued, and registration is verified to run before token generation.
+     */
     @Test
     public void register_registersGuest_thenReturnsToken() {
         when(guestRepository.findByEmail("ada@example.com")).thenReturn(Optional.of(guest));
@@ -67,6 +81,12 @@ public class AuthenticationServiceTest {
         verify(jwtService).generateTokens(guest);
     }
 
+    /**
+     * Given the repository cannot find the guest immediately after registration;
+     * when registration runs; then a RuntimeException reporting the missing user is
+     * raised and no token is generated — an inconsistent post-registration state never
+     * yields a token.
+     */
     @Test
     public void register_throws_whenGuestMissingAfterRegistration() {
         when(guestRepository.findByEmail("ada@example.com")).thenReturn(Optional.empty());
@@ -80,6 +100,12 @@ public class AuthenticationServiceTest {
 
     // ── login ─────────────────────────────────────────────────────
 
+    /**
+     * Given the AuthenticationManager accepts the credentials and the repository finds
+     * the guest; when a guest logs in; then the returned token is the one JwtService
+     * issued, and the AuthenticationManager is verified to have been called with the
+     * exact principal and password supplied.
+     */
     @Test
     public void login_authenticates_thenReturnsToken() {
         Authentication auth = new UsernamePasswordAuthenticationToken("ada@example.com", "raw-password");
@@ -95,6 +121,12 @@ public class AuthenticationServiceTest {
                 new UsernamePasswordAuthenticationToken("ada@example.com", "raw-password"));
     }
 
+    /**
+     * Given the AuthenticationManager rejects the credentials with BadCredentialsException;
+     * when a guest attempts to log in; then that exception propagates unchanged, the
+     * repository is never queried, and no token is generated — a failed credential check
+     * short-circuits the whole flow.
+     */
     @Test
     public void login_propagatesBadCredentials_andSkipsTokenGeneration() {
         when(authenticationManager.authenticate(any()))

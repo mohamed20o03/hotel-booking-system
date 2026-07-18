@@ -65,7 +65,11 @@ public class HotelControllerTest {
 
     // ── Public reads ────────────────────────────────────────────────
 
-    // GET is permitAll in SecurityConfig — an anonymous caller gets 200.
+    /**
+     * Given the service returns a hotel list and the GET route is permitAll in SecurityConfig;
+     * when an anonymous caller GETs /api/hotels; then the response is 200 OK with the
+     * serialized list, proving the read path requires no authentication.
+     */
     @Test
     @WithAnonymousUser
     public void getAllHotels_isPublic() throws Exception {
@@ -77,7 +81,12 @@ public class HotelControllerTest {
                 .andExpect(jsonPath("$[0].name").value("Nile Grand"));
     }
 
-    // A missing hotel maps to 404 via GlobalExceptionHandler, even for public reads.
+    /**
+     * Given the service raises ResourceNotFoundException for an unknown id;
+     * when an anonymous caller GETs /api/hotels/99; then GlobalExceptionHandler maps the
+     * exception to 404 Not Found with a body status of 404 — error mapping applies to
+     * public reads exactly as it does to authenticated routes.
+     */
     @Test
     @WithAnonymousUser
     public void getHotelById_returns404_whenMissing() throws Exception {
@@ -91,6 +100,11 @@ public class HotelControllerTest {
 
     // ── Admin-gated writes ──────────────────────────────────────────
 
+    /**
+     * Given an authenticated ROLE_ADMIN and the service returning the created hotel;
+     * when the admin POSTs a valid body to /api/hotels; then the response is 201 Created
+     * with the persisted id and the service is invoked — the admin-gated write succeeds.
+     */
     @Test
     @WithMockUser(roles = "ADMIN")
     public void createHotel_returns201_forAdmin() throws Exception {
@@ -105,7 +119,12 @@ public class HotelControllerTest {
         verify(hotelService).createHotel(any());
     }
 
-    // The write must be blocked for a plain user even though GET on the same path is open.
+    /**
+     * Given an authenticated but non-admin ROLE_USER;
+     * when they POST a valid body to /api/hotels; then the response is 403 Forbidden and
+     * the service is never reached — the write rule is enforced by HTTP verb, so a role
+     * that may GET the same path is still blocked from mutating it.
+     */
     @Test
     @WithMockUser(roles = "USER")
     public void createHotel_returns403_forNonAdmin() throws Exception {
@@ -117,7 +136,12 @@ public class HotelControllerTest {
         verify(hotelService, never()).createHotel(any());
     }
 
-    // And blocked entirely for an anonymous caller.
+    /**
+     * Given no authenticated identity;
+     * when an anonymous caller POSTs a valid body to /api/hotels; then the response is
+     * 403 Forbidden (not 401) and the service is never reached — the write is closed to
+     * anonymous callers just as it is to non-admins.
+     */
     @Test
     @WithAnonymousUser
     public void createHotel_rejectsAnonymous() throws Exception {
@@ -129,7 +153,12 @@ public class HotelControllerTest {
         verify(hotelService, never()).createHotel(any());
     }
 
-    // Bad body (star rating out of range) fails @Valid with 400 before the service.
+    /**
+     * Given an authenticated ROLE_ADMIN and a body whose starRating (9) exceeds the
+     * allowed range; when the admin POSTs it to /api/hotels; then @Valid rejects the
+     * request with 400 Bad Request before the service is called — validation runs after
+     * the RBAC check but ahead of the controller body.
+     */
     @Test
     @WithMockUser(roles = "ADMIN")
     public void createHotel_returns400_whenStarRatingOutOfRange() throws Exception {

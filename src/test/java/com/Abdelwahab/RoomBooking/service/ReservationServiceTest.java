@@ -44,6 +44,19 @@ import com.Abdelwahab.RoomBooking.repository.ReservationRepository;
 import com.Abdelwahab.RoomBooking.repository.RoomRepository;
 import com.Abdelwahab.RoomBooking.repository.RoomTypeRepository;
 
+/**
+ * Plain Mockito unit test for ReservationService — no Spring context is loaded
+ * (@ExtendWith(MockitoExtension.class); every collaborator is a @Mock, and the Spring
+ * Security SecurityContext/Authentication are stubbed by hand via SecurityContextHolder
+ * to stand in for the authenticated caller, cleared after each test). It verifies the
+ * booking lifecycle in isolation from persistence, pricing arithmetic (delegated to a
+ * mocked PricingService) and inventory locking (delegated to a mocked InventoryService):
+ * availability search assembles room-type options with quoted rate plans; createBooking
+ * opens a PENDING hold with a future expiry, holds inventory atomically and assigns no
+ * physical room; cancel and expiry release the held inventory and move the status
+ * correctly (including the no-op guard when a race already confirmed the reservation);
+ * and check-in assigns a room and advances the status.
+ */
 @ExtendWith(MockitoExtension.class)
 public class ReservationServiceTest {
 
@@ -136,6 +149,11 @@ public class ReservationServiceTest {
         SecurityContextHolder.clearContext();
     }
 
+    /**
+     * Given the repository finds a reservation by its confirmation number;
+     * when it is looked up; then the mapped DTO carries that confirmation number and the
+     * guest's full name.
+     */
     @Test
     public void getReservationByConfirmationNumber_Success() {
         when(reservationRepository.findByConfirmationNumber("CONF123"))
@@ -149,6 +167,12 @@ public class ReservationServiceTest {
         verify(reservationRepository, times(1)).findByConfirmationNumber("CONF123");
     }
 
+    /**
+     * Given a hotel with one room type that has 4 rooms available for the stay and one
+     * rate plan quoted at 300 for two nights; when availability is searched;
+     * then a single option is returned carrying the room-type name, the available count,
+     * and its rate plan with the quoted total price.
+     */
     @Test
     public void searchAvailableOptions_ReturnsAvailableRooms() {
         LocalDate checkIn = LocalDate.now().plusDays(1);
@@ -170,6 +194,14 @@ public class ReservationServiceTest {
         assertThat(results.get(0).ratePlans().get(0).totalPrice()).isEqualByComparingTo("300.00");
     }
 
+    /**
+     * Given an authenticated guest, a resolvable rate plan, and a two-night quote of 300;
+     * when a booking is created; then the confirmation reports the guest, the 300 total
+     * over two nights with a per-night breakdown, and a PENDING status with no assigned
+     * room; inventory is reserved atomically for the stay; and the persisted reservation
+     * is PENDING with a future hold-expiry timestamp — booking opens a timed hold, not a
+     * confirmed stay.
+     */
     @Test
     public void createBooking_Success() {
         mockSecurityContext("john@example.com");
@@ -208,6 +240,11 @@ public class ReservationServiceTest {
         assertThat(saved.getValue().getHoldExpiresAt()).isAfter(LocalDateTime.now());
     }
 
+    /**
+     * Given the authenticated owner and a CONFIRMED reservation;
+     * when it is cancelled; then the status moves to CANCELLED, the reservation is saved,
+     * and the held inventory is released back to the allotment for the stay.
+     */
     @Test
     public void cancelReservation_Success() {
         mockSecurityContext("john@example.com");
@@ -225,6 +262,12 @@ public class ReservationServiceTest {
                 sampleReservation.getCheckOutDate());
     }
 
+    /**
+     * Given the owner and a PENDING reservation with a live future hold;
+     * when it is cancelled; then the status moves to CANCELLED, the hold expiry is
+     * cleared, and the held inventory is released — a PENDING hold reserves inventory too
+     * and so must be cancellable.
+     */
     @Test
     public void cancelReservation_alsoCancelsAPendingHold() {
         // A PENDING hold holds inventory too, so it must be cancellable.
@@ -243,6 +286,11 @@ public class ReservationServiceTest {
                 sampleReservation.getCheckOutDate());
     }
 
+    /**
+     * Given a PENDING reservation whose hold expired a minute ago;
+     * when the expiry sweep runs for it; then the status moves to EXPIRED, the hold
+     * expiry is cleared, the reservation is saved, and the held inventory is released.
+     */
     @Test
     public void expireHold_expiresPendingHold_andReleasesInventory() {
         sampleReservation.setStatus(ReservationStatus.PENDING);
@@ -260,6 +308,12 @@ public class ReservationServiceTest {
                 sampleReservation.getCheckOutDate());
     }
 
+    /**
+     * Given a reservation that a payment confirmed between the sweep's query and this
+     * call (now CONFIRMED); when expiry runs for it; then it stays CONFIRMED, is not
+     * saved, and inventory is not released — the guard prevents a race from expiring a
+     * paid booking.
+     */
     @Test
     public void expireHold_isNoOp_whenReservationAlreadyConfirmed() {
         // A payment confirmed the reservation between the sweep's query and this
@@ -274,6 +328,12 @@ public class ReservationServiceTest {
         verify(inventoryService, never()).release(any(RoomType.class), any(LocalDate.class), any(LocalDate.class));
     }
 
+    /**
+     * Given a reservation and an available physical room of its type for the stay;
+     * when the front desk checks it in; then the status moves to CHECKED_IN, the room is
+     * assigned to the reservation, and the response reports the assigned room id — the
+     * physical room is bound at check-in, not at booking.
+     */
     @Test
     public void checkIn_AssignsRoom_AndMovesToCheckedIn() {
         when(reservationRepository.findById(500L)).thenReturn(Optional.of(sampleReservation));

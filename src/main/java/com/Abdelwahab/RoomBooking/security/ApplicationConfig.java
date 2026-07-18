@@ -16,8 +16,15 @@ import com.Abdelwahab.RoomBooking.repository.GuestRepository;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Core security infrastructure for the Hotel Booking System.
- * Wires identity resolution, credential verification, and authentication delegation beans.
+ * Core authentication infrastructure for the Hotel Booking System.
+ *
+ * <p>Wires the beans that resolve identity and verify credentials: a
+ * {@link UserDetailsService} that bridges Spring Security to {@code GuestRepository}
+ * by email, a {@link DaoAuthenticationProvider} that couples that lookup with a
+ * BCrypt {@link PasswordEncoder}, and the {@link AuthenticationManager} exposed for
+ * programmatic login in the service layer.
+ *
+ * @see SecurityConfig
  */
 @Configuration
 @RequiredArgsConstructor

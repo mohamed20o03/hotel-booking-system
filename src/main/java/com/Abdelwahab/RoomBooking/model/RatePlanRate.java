@@ -23,15 +23,22 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * A price override for a rate plan on a single calendar date.
+ * A price override for a {@link RatePlan} on a single calendar date.
  *
- * Rate plans are now SPARSE: they only store rows for dates whose price differs
- * from the room type's base rate. A "Summer Promo" covering Aug 5–15 is simply
- * 11 rows here at the promo price. Any date without a row falls back to
- * RoomType.basePricePerNight during pricing.
+ * <p><strong>Domain concept.</strong> Maps to the {@code rate_plan_rate} table. Rate plans
+ * are <strong>sparse</strong>: they store rows only for dates whose price differs from the
+ * room type's base rate. A "Summer Promo" covering Aug 5–15 is simply 11 rows here at the
+ * promo price; any date without a row falls back to {@code RoomType.basePricePerNight}
+ * during pricing (recorded on the resulting night as {@link RateSource#BASE}).
  *
- * This is what lets a stay span any range — the pricing engine resolves each
- * night independently instead of requiring the whole stay to fit one plan window.
+ * <p>This is what lets a stay span any range — the pricing engine resolves each night
+ * independently instead of requiring the whole stay to fit one plan window.
+ *
+ * <p><strong>Relationships.</strong> Owned by a {@link RatePlan} ({@code @ManyToOne},
+ * cascade delete).
+ *
+ * <p><strong>Invariants.</strong> A <strong>unique</strong> constraint on
+ * ({@code rate_plan_id}, {@code date}) guarantees at most one override per plan per date.
  */
 @Entity
 @Table(name = "rate_plan_rate", uniqueConstraints = @UniqueConstraint(columnNames = {"rate_plan_id", "date"}))

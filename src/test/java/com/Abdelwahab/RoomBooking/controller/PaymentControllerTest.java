@@ -65,7 +65,12 @@ public class PaymentControllerTest {
                 new BigDecimal("300.00"), BigDecimal.ZERO, LocalDateTime.now());
     }
 
-    // Happy path — an authenticated guest pays and gets 201 with the settled state.
+    /**
+     * Given an authenticated guest and the service returning a settled payment;
+     * when they POST a valid payment body to /api/payments; then the response is 201
+     * Created reporting the reservation now CONFIRMED with a zero balance due, and the
+     * service is invoked — the happy path for the authenticated-any-user contract.
+     */
     @Test
     @WithMockUser(username = "john@example.com")
     public void pay_returns201_forAuthenticatedGuest() throws Exception {
@@ -81,7 +86,12 @@ public class PaymentControllerTest {
         verify(paymentService).pay(any());
     }
 
-    // Auth — no login means no payment; the request is rejected before the service.
+    /**
+     * Given no authenticated identity;
+     * when an anonymous caller POSTs a valid body to /api/payments; then the
+     * anyRequest().authenticated() rule rejects it with 403 Forbidden (not 401) and the
+     * service is never reached.
+     */
     @Test
     @WithAnonymousUser
     public void pay_rejectsAnonymous() throws Exception {
@@ -93,7 +103,12 @@ public class PaymentControllerTest {
         verify(paymentService, never()).pay(any());
     }
 
-    // Error mapping — a domain payment failure surfaces as 409, not 500.
+    /**
+     * Given the service raises PaymentException (a domain payment failure such as
+     * overpayment); when an authenticated guest POSTs a valid body to /api/payments;
+     * then GlobalExceptionHandler maps it to 409 Conflict with a body status of 409 —
+     * a domain conflict, not an unhandled 500.
+     */
     @Test
     @WithMockUser(username = "john@example.com")
     public void pay_returns409_whenPaymentRejected() throws Exception {
@@ -107,7 +122,12 @@ public class PaymentControllerTest {
                 .andExpect(jsonPath("$.status").value(409));
     }
 
-    // Error mapping — paying a booking you don't own is an IllegalArgumentException → 400.
+    /**
+     * Given the service raises IllegalArgumentException because the caller does not own
+     * the reservation; when an authenticated guest POSTs to /api/payments; then
+     * GlobalExceptionHandler maps it to 400 Bad Request with a body status of 400 — a
+     * row-level ownership rejection distinct from the route-level 403.
+     */
     @Test
     @WithMockUser(username = "john@example.com")
     public void pay_returns400_whenNotOwner() throws Exception {
@@ -121,7 +141,11 @@ public class PaymentControllerTest {
                 .andExpect(jsonPath("$.status").value(400));
     }
 
-    // Validation — a non-positive amount fails @DecimalMin with 400 before the service.
+    /**
+     * Given an authenticated guest and a body whose amount is zero;
+     * when it is POSTed to /api/payments; then @DecimalMin rejects the request with 400
+     * Bad Request before the controller body runs and the service is never invoked.
+     */
     @Test
     @WithMockUser(username = "john@example.com")
     public void pay_returns400_whenAmountNotPositive() throws Exception {

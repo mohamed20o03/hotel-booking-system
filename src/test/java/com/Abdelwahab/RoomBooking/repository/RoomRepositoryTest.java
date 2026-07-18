@@ -64,6 +64,11 @@ public class RoomRepositoryTest {
 
     // ── the query under test ──────────────────────────────────────
 
+    /**
+     * Given a single room with no reservation and no maintenance block over the stay;
+     * when available rooms are queried; then that room is returned — the baseline case
+     * where both NOT EXISTS subqueries pass.
+     */
     @Test
     public void findAvailableRooms_returnsRoom_whenNoReservationOrBlock() {
         Room room = persistRoom(roomType);
@@ -73,6 +78,11 @@ public class RoomRepositoryTest {
         assertThat(result).containsExactly(room);
     }
 
+    /**
+     * Given a room with a CONFIRMED reservation overlapping the stay;
+     * when available rooms are queried; then the result is empty — the reservation
+     * NOT EXISTS subquery excludes it.
+     */
     @Test
     public void findAvailableRooms_excludesRoom_withOverlappingConfirmedReservation() {
         Room room = persistRoom(roomType);
@@ -85,6 +95,12 @@ public class RoomRepositoryTest {
         assertThat(result).isEmpty();
     }
 
+    /**
+     * Given a room whose only overlapping reservation is CANCELLED;
+     * when available rooms are queried; then the room is returned — the query excludes
+     * CANCELLED reservations. This is the regression guard for the old bug where a
+     * cancelled booking still blocked the room.
+     */
     @Test
     public void findAvailableRooms_includesRoom_whenOverlappingReservationIsCancelled() {
         // This is the regression guard for the old bug: a CANCELLED reservation
@@ -98,6 +114,11 @@ public class RoomRepositoryTest {
         assertThat(result).containsExactly(room);
     }
 
+    /**
+     * Given a room with a reservation that checks out exactly on the new stay's check-in
+     * day; when available rooms are queried; then the room is returned — under half-open
+     * intervals an adjacent, back-to-back reservation does not overlap.
+     */
     @Test
     public void findAvailableRooms_includesRoom_whenReservationIsAdjacentNotOverlapping() {
         // Half-open intervals: a reservation that checks out ON our check-in day
@@ -111,6 +132,11 @@ public class RoomRepositoryTest {
         assertThat(result).containsExactly(room);
     }
 
+    /**
+     * Given a room with a maintenance block overlapping the stay;
+     * when available rooms are queried; then the result is empty — the maintenance
+     * NOT EXISTS subquery excludes it.
+     */
     @Test
     public void findAvailableRooms_excludesRoom_withOverlappingMaintenanceBlock() {
         Room room = persistRoom(roomType);
@@ -121,6 +147,11 @@ public class RoomRepositoryTest {
         assertThat(result).isEmpty();
     }
 
+    /**
+     * Given three rooms of the same type — one free, one with a confirmed reservation,
+     * one under maintenance — over the stay; when available rooms are queried; then only
+     * the free room is returned, exercising both exclusion subqueries together.
+     */
     @Test
     public void findAvailableRooms_returnsOnlyFreeRooms_amongMany() {
         Room free = persistRoom(roomType);
@@ -134,6 +165,11 @@ public class RoomRepositoryTest {
         assertThat(result).containsExactly(free);
     }
 
+    /**
+     * Given a free room of the requested type and another free room of a different type;
+     * when available rooms are queried for the requested type; then only its room is
+     * returned — the query is scoped to the requested room type.
+     */
     @Test
     public void findAvailableRooms_isScopedToRequestedRoomType() {
         Room mine = persistRoom(roomType);

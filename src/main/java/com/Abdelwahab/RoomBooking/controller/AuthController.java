@@ -17,6 +17,43 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * HTTP entry point for authentication: guest registration, login, and logout.
+ *
+ * <p><strong>Architectural role.</strong> A thin web-contract adapter. It binds and
+ * validates credentials, delegates to {@link AuthenticationService}, and translates
+ * the issued JWT into an authentication cookie on the response. It holds no business
+ * logic beyond cookie assembly: persistence, password hashing, credential checks, and
+ * token minting all live in the service layer.
+ *
+ * <p><strong>Cookie contract.</strong> The JWT is never placed in the response body.
+ * On successful register/login the controller sets a {@code Set-Cookie} header for a
+ * cookie named {@code "jwt"} that is {@code HttpOnly} (unreadable by JavaScript,
+ * neutralising token theft via XSS), {@code Secure} (sent only over HTTPS),
+ * {@code Path=/} (sent with every API request), {@code Max-Age=86400} (one day, to
+ * match the configured token expiry), and {@code SameSite=Strict} (never sent on
+ * cross-site requests, blocking CSRF). Logout overwrites that cookie with an empty,
+ * {@code Max-Age=0} cookie of the same name and path so the browser discards it; no
+ * server-side token blacklist is kept.
+ *
+ * <p><strong>Thread safety.</strong> Stateless and therefore thread-safe. Its only
+ * field is the injected singleton {@link AuthenticationService}; each request runs on
+ * its own thread with request-scoped arguments.
+ *
+ * <p><strong>Security &amp; scope.</strong> All three endpoints are <strong>public</strong>,
+ * matched by the {@code /api/auth/**} {@code permitAll} rule in {@code SecurityConfig}
+ * — a caller must be able to reach them before holding a token.
+ *
+ * <p><strong>Error contract.</strong> Domain exceptions are mapped centrally by
+ * {@code GlobalExceptionHandler}: a duplicate email on registration raises
+ * {@code DuplicateResourceException → 409}, and bean-validation failures on
+ * {@code @Valid → 400}. Bad login credentials raise an {@code AuthenticationException},
+ * which is not remapped and therefore surfaces through the catch-all as
+ * {@code 500 Internal Server Error}.
+ *
+ * @see AuthenticationService
+ * @see com.Abdelwahab.RoomBooking.exception.GlobalExceptionHandler
+ */
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -25,11 +62,21 @@ public class AuthController {
     private final AuthenticationService authenticationService;
 
     /**
-     * POST /api/auth/register
+     * Registers a new guest, mints a JWT, and delivers it in the {@code "jwt"}
+     * authentication cookie (see the class-level cookie contract). The token is never
+     * returned in the body.
      *
-     * Registers a new guest, generates a JWT, and delivers it via an HttpOnly cookie.
-     * The token is NEVER returned in the response body — this prevents JavaScript from
-     * ever reading or stealing it (defense against XSS attacks).
+     * <p>Public. Self-registration always creates a standard guest, never an admin.
+     * The request body is validated with {@code @Valid} before the service is reached.
+     *
+     * @param request  the new guest's details — name, email, password, and profile
+     *                fields; validated by DTO constraints.
+     * @param response the servlet response the {@code Set-Cookie} header is written to.
+     * @return {@code 201 Created} with no body; the JWT is delivered via the cookie.
+     * @throws com.Abdelwahab.RoomBooking.exception.DuplicateResourceException if the
+     *         email is already registered (mapped to {@code 409}).
+     * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
+     *         fails bean validation (mapped to {@code 400}).
      */
     @PostMapping("/register")
     public ResponseEntity<Void> register(
@@ -38,17 +85,27 @@ public class AuthController {
 
         String token = authenticationService.register(request);
 
-        // Write the JWT into the Set-Cookie header rather than the response body.
-        // The browser stores this automatically and sends it with every future request.
         response.addHeader(HttpHeaders.SET_COOKIE, buildJwtCookie(token).toString());
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
     /**
-     * POST /api/auth/login
+     * Authenticates a guest's credentials via Spring Security, mints a JWT, and
+     * delivers it in the {@code "jwt"} authentication cookie (see the class-level
+     * cookie contract). The token is never returned in the body.
      *
-     * Validates credentials via Spring Security's AuthenticationManager, generates a
-     * JWT, and delivers it in an HttpOnly cookie. Returns 200 OK with no body.
+     * <p>Public. The request body is validated with {@code @Valid} before the service
+     * is reached.
+     *
+     * @param request  the login credentials — email and password; validated by DTO
+     *                constraints.
+     * @param response the servlet response the {@code Set-Cookie} header is written to.
+     * @return {@code 200 OK} with no body; the JWT is delivered via the cookie.
+     * @throws org.springframework.security.core.AuthenticationException if the
+     *         credentials are invalid; not remapped, so it surfaces via the catch-all
+     *         as {@code 500}.
+     * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
+     *         fails bean validation (mapped to {@code 400}).
      */
     @PostMapping("/login")
     public ResponseEntity<Void> login(
@@ -62,11 +119,15 @@ public class AuthController {
     }
 
     /**
-     * POST /api/auth/logout
+     * Logs the guest out by overwriting the {@code "jwt"} cookie with an empty,
+     * immediately expired ({@code Max-Age=0}) cookie so the browser discards it. No
+     * server-side token blacklist is needed.
      *
-     * Logs the guest out by overwriting the JWT cookie with an empty, immediately
-     * expired cookie (Max-Age=0). The browser discards it automatically.
-     * No JWT blacklist is needed — the cookie is simply gone from the browser.
+     * <p>Public; safe to call whether or not a valid session exists.
+     *
+     * @param response the servlet response the clearing {@code Set-Cookie} header is
+     *                written to.
+     * @return {@code 204 No Content}.
      */
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletResponse response) {

@@ -16,12 +16,24 @@ import com.Abdelwahab.RoomBooking.repository.RoomRepository;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Takes physical rooms in and out of service for maintenance.
+ * Takes physical rooms in and out of service for maintenance, keeping the sellable
+ * inventory honest as it does so.
  *
- * Blocking a room is not just a note against that room — it removes real
- * capacity, so it also decrements the room type's sellable allotment for every
- * blocked night. That keeps the count calendar (what search sells) in step with
- * the physical rooms (what check-in can assign), so the two can never disagree.
+ * <p><strong>Responsibility.</strong> Blocking a room is not merely a note against
+ * that room — it removes real capacity. So this service also decrements the room
+ * type's sellable allotment (via {@link InventoryService}) for every blocked night,
+ * and restores it when the block is lifted. That keeps the count calendar (what
+ * search sells) in step with the physical rooms (what check-in can assign), so the
+ * two can never disagree.
+ *
+ * <p><strong>Concurrency.</strong> Capacity adjustments run through
+ * {@link InventoryService}, which pessimistically locks the affected night rows; a
+ * block that would collide with concurrent bookings serializes behind them. The
+ * capacity change and the block record are written in the same transaction, so a
+ * rejection leaves neither.
+ *
+ * <p><strong>Thread safety.</strong> A stateless Spring singleton holding only
+ * injected collaborators.
  */
 @Service
 @RequiredArgsConstructor
@@ -32,10 +44,25 @@ public class MaintenanceService {
     private final InventoryService inventoryService;
 
     /**
-     * Puts a room under maintenance for [startDate, endDate) and reduces the room
-     * type's per-night capacity accordingly. Runs in one transaction: if any night
-     * is already fully sold, decrementCapacity throws and the whole block is rolled
-     * back (nothing is persisted, no capacity changes).
+     * Puts a room under maintenance for {@code [startDate, endDate)} and reduces the
+     * room type's per-night capacity accordingly.
+     *
+     * <p>Rejects a block overlapping an existing one on the same physical room, since
+     * capacity is decremented per block and overlapping blocks would drop the room
+     * type's count by more than the single room actually taken offline. Read-write
+     * transactional and atomic: the capacity decrement runs before the block is
+     * persisted, so if any blocked night is already fully sold the decrement throws
+     * and the whole operation rolls back — nothing is persisted and no capacity
+     * changes.
+     *
+     * @param request the block to create (room id, start and end dates, reason);
+     *                must be non-{@code null} and valid.
+     * @return a {@link MaintenanceBlockResponseDTO} view of the persisted block.
+     * @throws ResourceNotFoundException  if no room exists with the requested id.
+     * @throws DuplicateResourceException if an overlapping block already exists on
+     *         the same room.
+     * @throws NoAvailabilityException    if a blocked night is fully booked (surfaced
+     *         from {@link InventoryService#decrementCapacity}); rolls back the block.
      */
     @Transactional
     public MaintenanceBlockResponseDTO createBlock(MaintenanceBlockRequestDTO request) {
@@ -70,6 +97,13 @@ public class MaintenanceService {
 
     /**
      * Lifts a maintenance block and returns the freed capacity to the allotment.
+     *
+     * <p>Read-write transactional and atomic: the capacity is restored (via
+     * {@link InventoryService#incrementCapacity}) and the block record deleted within
+     * one transaction, so the count calendar and the block list stay consistent.
+     *
+     * @param blockId the maintenance block to lift; must identify an existing block.
+     * @throws ResourceNotFoundException if no block exists with the given id.
      */
     @Transactional
     public void removeBlock(Long blockId) {

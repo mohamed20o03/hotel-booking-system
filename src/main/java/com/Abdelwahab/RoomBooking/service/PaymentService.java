@@ -21,20 +21,32 @@ import com.Abdelwahab.RoomBooking.repository.ReservationRepository;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Records payments against a reservation and confirms the booking once its
- * balance is fully settled.
+ * Records payments against a reservation and confirms the booking once its balance
+ * is fully settled.
  *
- * This is a SIMULATED / front-desk provider: there is no external gateway call,
- * so every payment is recorded as SUCCESS immediately with a generated
- * transaction reference. Swapping in a real gateway later means calling it here
- * and setting the status/reference from its response — the confirmation logic
- * around it stays the same.
+ * <p><strong>Role in the reservation state machine.</strong> This service drives the
+ * {@code PENDING → CONFIRMED} transition. Confirmation is decided by the
+ * successful-payment total, not by a single payment: partial payments (e.g. a
+ * deposit) leave the reservation {@code PENDING} with a balance due; the payment
+ * that brings the cumulative total up to {@code totalPrice} flips the status to
+ * {@code CONFIRMED} and clears the hold's expiry, so it is no longer a timed hold.
  *
- * Confirmation is driven by the successful-payment total, not by a single
- * payment: partial payments (e.g. a deposit) leave the reservation PENDING with
- * a balance due; the payment that brings the total up to totalPrice flips it to
- * CONFIRMED and clears the hold's expiry. The reservation's @Version guards this
- * flip against a concurrent expiry sweep.
+ * <p><strong>Simulated provider.</strong> This is a SIMULATED / front-desk provider:
+ * there is no external gateway call, so every payment is recorded as {@code SUCCESS}
+ * immediately with a generated transaction reference. Swapping in a real gateway
+ * later means calling it here and setting the status/reference from its response —
+ * the confirmation logic around it stays the same.
+ *
+ * <p><strong>Concurrency — racing the expiry sweep.</strong> {@link HoldExpirySweeper}
+ * may try to expire the very same hold this service is confirming. The reservation's
+ * {@code @Version} optimistic lock arbitrates: whichever transaction commits second
+ * fails its version check. In practice the payment wins — either the sweep's
+ * {@code expireHold} re-reads the row as no longer {@code PENDING}, or it fails with
+ * an optimistic-lock exception that the sweeper swallows for that hold.
+ *
+ * <p><strong>Thread safety.</strong> A stateless Spring singleton holding only its
+ * injected repositories; correctness under concurrency comes from the version guard,
+ * not instance state.
  */
 @Service
 @RequiredArgsConstructor
@@ -49,10 +61,31 @@ public class PaymentService {
      * Applies a payment to a reservation on behalf of the authenticated guest and
      * confirms the booking if it becomes fully paid.
      *
-     * Rejects payment unless the reservation is PENDING (a live, unpaid hold): a
-     * CONFIRMED/CHECKED_IN/etc. booking is already settled, and a CANCELLED or
-     * EXPIRED one no longer holds inventory. An expired-but-not-yet-swept hold is
-     * also rejected, so a guest can't pay for a room the sweep is about to release.
+     * <p>Enforces, in order: ownership (only the guest who booked may pay), a
+     * {@code PENDING} status (a {@code CONFIRMED}/{@code CHECKED_IN}/etc. booking is
+     * already settled, and a {@code CANCELLED}/{@code EXPIRED} one no longer holds
+     * inventory), a still-live hold window (an expired-but-not-yet-swept hold is
+     * rejected so a guest cannot pay for a room the sweep is about to release), and
+     * an amount not exceeding the outstanding balance. On success it records a
+     * {@code SUCCESS} payment and, once the cumulative total clears the balance,
+     * confirms the reservation and nulls its expiry.
+     *
+     * <p>Read-write transactional. The reservation's {@code @Version} guards the
+     * confirmation flip against a concurrent expiry sweep; if the sweep wins, this
+     * transaction fails its version check and rolls back — the payment is not
+     * silently applied to an expired hold. Any thrown domain exception below also
+     * rolls back the transaction, so no partial payment is left recorded.
+     *
+     * @param request the payment to apply (target reservation id, amount, method);
+     *                must be non-{@code null} and valid.
+     * @return a {@link PaymentResponseDTO} describing the recorded payment, the
+     *         resulting reservation status, the cumulative amount paid, and the
+     *         remaining balance (never negative).
+     * @throws ResourceNotFoundException if no reservation exists with the given id.
+     * @throws IllegalArgumentException  if the authenticated guest does not own the
+     *         reservation.
+     * @throws PaymentException          if the reservation is not awaiting payment,
+     *         its hold window has expired, or the amount exceeds the balance due.
      */
     @Transactional
     public PaymentResponseDTO pay(PaymentRequestDTO request) {

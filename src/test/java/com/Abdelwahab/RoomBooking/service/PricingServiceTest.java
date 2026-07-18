@@ -25,6 +25,16 @@ import com.Abdelwahab.RoomBooking.model.RateSource;
 import com.Abdelwahab.RoomBooking.model.RoomType;
 import com.Abdelwahab.RoomBooking.repository.RatePlanRateRepository;
 
+/**
+ * Plain Mockito unit test for PricingService — no Spring context is loaded
+ * (@ExtendWith(MockitoExtension.class); the RatePlanRateRepository is a @Mock injected
+ * into the service). It pins the day-by-day rate engine's arithmetic in isolation: the
+ * half-open stay interval (the checkout night is never charged), the fall-through from
+ * a rate-plan override to the room type's base rate on a per-night basis with correct
+ * RateSource tagging, that the quote currency is taken from the room type, and the
+ * fail-fast guard rejecting a rate plan that belongs to a different room type before
+ * the database is queried.
+ */
 @ExtendWith(MockitoExtension.class)
 public class PricingServiceTest {
 
@@ -61,6 +71,11 @@ public class PricingServiceTest {
                 .build();
     }
 
+    /**
+     * Given a three-night stay with no rate-plan overrides;
+     * when quoted; then all three nights price at the base rate (3 x 100 = 300.00) in the
+     * room type's currency and every night is tagged RateSource.BASE.
+     */
     @Test
     public void quote_allBaseRate_whenNoOverrides() {
         LocalDate checkIn = LocalDate.of(2026, 6, 1);
@@ -75,6 +90,11 @@ public class PricingServiceTest {
         assertThat(quote.nights()).allMatch(n -> n.source() == RateSource.BASE);
     }
 
+    /**
+     * Given a one-night stay (check-in Jun 1, checkout Jun 2) with no overrides;
+     * when quoted; then exactly one night (Jun 1) is charged at the base rate for a total
+     * of 100.00 — the checkout day is excluded by the half-open interval.
+     */
     @Test
     public void quote_checkoutNightIsNotCharged_halfOpenInterval() {
         LocalDate checkIn = LocalDate.of(2026, 6, 1);
@@ -88,6 +108,11 @@ public class PricingServiceTest {
         assertThat(quote.total()).isEqualByComparingTo("100.00");
     }
 
+    /**
+     * Given a six-night stay with plan overrides of 80 on three of the nights (the
+     * worked example); when quoted; then the nights outside the promo fall through to the
+     * base rate, the total is 540.00, and each night is tagged BASE or PLAN accordingly.
+     */
     @Test
     public void quote_mixesOverrideAndBase_dayByDay() {
         // The worked example, scaled down: base 100, promo 80 for Jun 5–7.
@@ -116,6 +141,12 @@ public class PricingServiceTest {
                 RateSource.BASE);
     }
 
+    /**
+     * Given a two-night stay where findForStay returns a single override for the first
+     * night; when quoted; then the first night uses the override (PLAN) and the second
+     * falls through to the base rate (BASE) for a total of 170.00 — documenting that the
+     * quote trusts the repository to have windowed the overrides to the stay.
+     */
     @Test
     public void quote_overridesOutsideStayAreIgnoredByQuery() {
         // The repository is asked only for the stay window, so anything it returns
@@ -132,6 +163,11 @@ public class PricingServiceTest {
         assertThat(quote.nights().get(1).source()).isEqualTo(RateSource.BASE);
     }
 
+    /**
+     * Given a rate plan whose room type differs from the one being priced;
+     * when a quote is attempted; then an IllegalArgumentException is raised and the
+     * repository is never queried — the mismatch is caught fast, before any database hit.
+     */
     @Test
     public void quote_rejectsRatePlanFromDifferentRoomType() {
         RoomType otherType = RoomType.builder().id(999L).name("Suite").build();
@@ -149,6 +185,11 @@ public class PricingServiceTest {
         verify(ratePlanRateRepository, never()).findForStay(any(), any(), any());
     }
 
+    /**
+     * Given the room type's currency is set to USD;
+     * when a stay is quoted; then the quote reports USD — the currency is sourced from
+     * the room type, not the rate plan.
+     */
     @Test
     public void quote_currencyComesFromRoomType() {
         roomType.setCurrency("USD");

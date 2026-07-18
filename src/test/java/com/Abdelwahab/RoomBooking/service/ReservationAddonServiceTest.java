@@ -92,6 +92,13 @@ public class ReservationAddonServiceTest {
         SecurityContextHolder.clearContext();
     }
 
+    /**
+     * Given the authenticated owner, a PENDING reservation, and an available catalogue
+     * add-on priced at 80; when the owner attaches quantity 2; then the line unit price
+     * is frozen from the catalogue (80.00), the line total is 160.00, the reservation
+     * total rolls up to 460.00, and the reservation is persisted — the client never
+     * dictates the price.
+     */
     @Test
     public void attachAddon_freezesCatalogPrice_andAddsToTotal() {
         mockSecurityContext("john@example.com");
@@ -110,6 +117,11 @@ public class ReservationAddonServiceTest {
         verify(reservationRepository).save(reservation);
     }
 
+    /**
+     * Given the reservation has already moved to CONFIRMED;
+     * when the owner attempts to attach an add-on; then an IllegalArgumentException is
+     * raised and nothing is saved — add-ons can only change while a reservation is PENDING.
+     */
     @Test
     public void attachAddon_rejectedWhenReservationNotPending() {
         reservation.setStatus(ReservationStatus.CONFIRMED);
@@ -123,6 +135,11 @@ public class ReservationAddonServiceTest {
         verify(reservationAddonRepository, never()).save(any(ReservationAddon.class));
     }
 
+    /**
+     * Given the authenticated caller is not the reservation's owner;
+     * when they attempt to attach an add-on; then an IllegalArgumentException (permission)
+     * is raised and nothing is saved — the ownership guard holds.
+     */
     @Test
     public void attachAddon_rejectedWhenGuestDoesNotOwnReservation() {
         mockSecurityContext("someone-else@example.com");
@@ -135,6 +152,11 @@ public class ReservationAddonServiceTest {
         verify(reservationAddonRepository, never()).save(any(ReservationAddon.class));
     }
 
+    /**
+     * Given the add-on belongs to a different hotel than the reservation's;
+     * when the owner attempts to attach it; then an IllegalArgumentException (different
+     * hotel) is raised and nothing is saved — the cross-hotel guard holds.
+     */
     @Test
     public void attachAddon_rejectedWhenAddonBelongsToAnotherHotel() {
         addon.setHotel(Hotel.builder().id(99L).build());
@@ -149,6 +171,11 @@ public class ReservationAddonServiceTest {
         verify(reservationAddonRepository, never()).save(any(ReservationAddon.class));
     }
 
+    /**
+     * Given the catalogue add-on is marked unavailable;
+     * when the owner attempts to attach it; then an IllegalArgumentException (not
+     * currently available) is raised and nothing is saved.
+     */
     @Test
     public void attachAddon_rejectedWhenAddonUnavailable() {
         addon.setAvailable(false);
@@ -163,6 +190,11 @@ public class ReservationAddonServiceTest {
         verify(reservationAddonRepository, never()).save(any(ReservationAddon.class));
     }
 
+    /**
+     * Given the owner, a PENDING reservation, and an existing add-on line of quantity 2
+     * at 80; when the owner detaches it; then the line total (160) is subtracted from the
+     * reservation total (300 to 140.00) and the line is deleted.
+     */
     @Test
     public void detachAddon_subtractsLineFromTotal_andDeletes() {
         mockSecurityContext("john@example.com");

@@ -20,15 +20,22 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
 /**
- * JWT Authentication Filter — the security gatekeeper for every HTTP request.
+ * JWT authentication filter — the per-request security gatekeeper.
  *
- * This filter runs ONCE per request (guaranteed by extending OncePerRequestFilter)
- * and sits in front of all controllers. Its job is to inspect the incoming request,
- * extract the JWT from the HttpOnly cookie, validate it, and — if valid — tell
- * Spring Security who the authenticated user is.
+ * <p>As a {@link OncePerRequestFilter}, this runs exactly once per request and sits
+ * ahead of all controllers. It reads the JWT from the HttpOnly {@code jwt} cookie
+ * (deliberately <em>not</em> the {@code Authorization} header, so the token is
+ * inaccessible to JavaScript and immune to XSS theft), validates it, and — when
+ * valid — populates the {@code SecurityContext} with the authenticated principal.
  *
- * If no valid token is found, the request continues unauthenticated.
- * Spring Security's own rules in SecurityConfig then decide whether to allow or reject it.
+ * <p>If no valid token is present, the filter does not reject the request itself;
+ * it passes through unauthenticated and lets the authorization rules in
+ * {@link SecurityConfig} decide the outcome. Because no
+ * {@code AuthenticationEntryPoint} is configured, an unauthenticated request to a
+ * protected endpoint is rejected as {@code 403 FORBIDDEN}.
+ *
+ * @see JwtService
+ * @see SecurityConfig
  */
 @Component
 @RequiredArgsConstructor
@@ -119,8 +126,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // ── Step 6: Continue the filter chain ─────────────────────────────────────
         // Whether authenticated or not, pass the request to the next filter/controller.
-        // If unauthenticated and the endpoint requires auth, Spring Security will
-        // automatically return 401 Unauthorized.
+        // If unauthenticated and the endpoint requires auth, Spring Security rejects it.
+        // Note: with no AuthenticationEntryPoint configured, that rejection is a
+        // 403 Forbidden (not the conventional 401 Unauthorized).
         filterChain.doFilter(request, response);
     }
 }

@@ -36,6 +36,49 @@ import com.Abdelwahab.RoomBooking.repository.RoomTypeRepository;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * The heart of the booking domain: it coordinates the reservation lifecycle from
+ * availability search through booking, check-in, cancellation, and hold expiry.
+ *
+ * <p><strong>State machine.</strong> This service owns the reservation status
+ * transitions:
+ * <ul>
+ *   <li>{@code createBooking} opens a hold in {@code PENDING}.</li>
+ *   <li>{@link PaymentService} settles the balance and moves it to
+ *       {@code CONFIRMED} (that transition lives in the payment service, not here).</li>
+ *   <li>{@link #checkIn} assigns a physical room and moves {@code CONFIRMED →
+ *       CHECKED_IN}.</li>
+ *   <li>{@link #cancelReservation} moves a live {@code PENDING} or {@code CONFIRMED}
+ *       hold to {@code CANCELLED}.</li>
+ *   <li>{@link #expireHold} moves a lapsed {@code PENDING} hold to {@code EXPIRED}.</li>
+ * </ul>
+ * A {@code NO_SHOW} status exists in the model for stays that never checked in.
+ * Every terminal or hold-releasing transition returns the room-type inventory to
+ * the allotment through {@link InventoryService}.
+ *
+ * <p><strong>Count-based inventory.</strong> A stay holds inventory by COUNT per
+ * night rather than by pinning a physical room; a concrete room is chosen only at
+ * check-in. This lets availability be evaluated per night without reserving a
+ * specific room up front.
+ *
+ * <p><strong>Concurrency.</strong> {@link #createBooking} delegates the hold to
+ * {@link InventoryService#reserve}, which takes a pessimistic write lock
+ * ({@code SELECT ... FOR UPDATE}) on each night row so two guests racing for the
+ * last room are serialized and the type can never be oversold. Separately,
+ * {@link #expireHold} and {@link PaymentService} may both target the same
+ * {@code PENDING} reservation; the reservation's {@code @Version} optimistic lock
+ * makes the loser fail cleanly, and {@code expireHold} additionally re-checks the
+ * status inside its own transaction so a payment that landed first is always
+ * honoured.
+ *
+ * <p><strong>Price integrity.</strong> Booking freezes the per-night breakdown from
+ * {@link PricingService} onto the reservation, so a later rate change never rewrites
+ * a stay's total.
+ *
+ * <p><strong>Thread safety.</strong> A stateless Spring singleton holding only
+ * injected collaborators; correctness under concurrency comes from database locks
+ * and the version column, not instance state.
+ */
 @Service
 @RequiredArgsConstructor
 public class ReservationService {
@@ -58,13 +101,28 @@ public class ReservationService {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Returns every room type that still has allotment for the requested dates,
-     * each paired with its rate plans priced day-by-day for those exact dates.
+     * Searches a hotel for every room type that can still be booked for the requested
+     * dates, each paired with its rate plans priced day-by-day.
      *
-     * Availability is now decided by the room-type inventory calendar (count per
-     * night), not by pinning a physical room. The base rate guarantees every
-     * night has a price, so a stay no longer has to fit inside a single rate
-     * plan's date window.
+     * <p>Availability is decided by the room-type inventory calendar (count per
+     * night), not by pinning a physical room, and room types that cannot seat the
+     * party or are sold out on any night are skipped. The base rate guarantees every
+     * night has a price, so a stay no longer has to fit inside a single rate plan's
+     * date window.
+     *
+     * <p>Read-only transactional: a pure query across inventory, rate plans, and
+     * pricing, marked {@code readOnly} to skip dirty-checking overhead. Being a
+     * non-locking read, its counts are indicative only — a subsequent booking still
+     * locks the inventory before committing.
+     *
+     * @param hotelId      the hotel to search.
+     * @param checkInDate  the first night of the stay (inclusive).
+     * @param checkOutDate the checkout date (exclusive); assumed after
+     *                     {@code checkInDate}.
+     * @param numGuests    the party size; room types with a smaller max occupancy are
+     *                     excluded.
+     * @return one {@link AvailabilityResponseDTO} per bookable room type, each with
+     *         its priced rate plans; an empty list if nothing is available.
      */
     @Transactional(readOnly = true)
     public List<AvailabilityResponseDTO> searchAvailableOptions(
@@ -123,15 +181,39 @@ public class ReservationService {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Creates a confirmed reservation under a single chosen rate plan. The flow is:
-     *   1. Resolve the authenticated guest and the chosen rate plan (+ its room type).
-     *   2. Enforce occupancy and the plan's minimum-stay policy.
-     *   3. Atomically reserve room-type inventory for every night (pessimistic lock).
-     *   4. Price the stay day-by-day (plan overrides + base-rate fallback).
-     *   5. Persist the reservation with its frozen per-night breakdown.
+     * Opens a reservation hold under a single chosen rate plan, holding inventory in
+     * the {@code PENDING} state pending payment.
      *
-     * A physical room is NOT assigned here — the reservation holds count-based
-     * inventory and stays CONFIRMED with assignedRoom == null until check-in.
+     * <p>The flow is:
+     * <ol>
+     *   <li>Resolve the authenticated guest (from the JWT, never the request body)
+     *       and the chosen rate plan with its room type.</li>
+     *   <li>Enforce occupancy and the plan's minimum-stay policy.</li>
+     *   <li>Atomically reserve room-type inventory for every night — this takes the
+     *       pessimistic write lock that prevents overselling.</li>
+     *   <li>Price the stay day-by-day (plan overrides plus base-rate fallback).</li>
+     *   <li>Persist the reservation with its frozen per-night breakdown and a hold
+     *       expiry.</li>
+     * </ol>
+     *
+     * <p>A physical room is NOT assigned here — the reservation holds count-based
+     * inventory and remains {@code PENDING} with {@code assignedRoom == null} until
+     * payment confirms it and, later, check-in pins a room. If unpaid by
+     * {@code holdExpiresAt}, {@link HoldExpirySweeper} releases the hold.
+     *
+     * <p>Read-write transactional and atomic: the inventory lock is held until commit,
+     * so any thrown exception rolls the whole booking back and leaves no partial hold.
+     *
+     * @param request the desired stay (rate plan id, dates, party size); must be
+     *                non-{@code null} and valid per its DTO constraints.
+     * @return a {@link ReservationConfirmationDTO} for the new {@code PENDING} hold,
+     *         including the per-night breakdown and total.
+     * @throws ResourceNotFoundException if the authenticated guest or the rate plan
+     *         cannot be resolved.
+     * @throws IllegalArgumentException  if the party exceeds the room type's max
+     *         occupancy or the stay is shorter than the plan's minimum.
+     * @throws NoAvailabilityException   if any night is closed or sold out (surfaced
+     *         from {@link InventoryService#reserve}); rolls back the booking.
      */
     @Transactional
     public ReservationConfirmationDTO createBooking(ReservationRequestDTO request) {
@@ -224,10 +306,27 @@ public class ReservationService {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Assigns a concrete physical room to a CONFIRMED reservation and moves it to
-     * CHECKED_IN. This is where a real room number is picked — from the rooms of
-     * the booked type that are physically free (no overlapping CHECKED_IN stay,
-     * no maintenance block) for the reservation's dates.
+     * Checks a guest in: assigns a concrete physical room to a {@code CONFIRMED}
+     * reservation and moves it to {@code CHECKED_IN}.
+     *
+     * <p>This is where a real room number is picked — from the rooms of the booked
+     * type that are physically free (no overlapping {@code CHECKED_IN} stay, no
+     * maintenance block) for the reservation's dates. A count-based hold guarantees a
+     * room of the type was reserved, but a maintenance block or data drift can still
+     * leave none physically assignable, which is treated as a conflict rather than a
+     * not-found.
+     *
+     * <p>Read-write transactional: the room assignment and status change commit
+     * together.
+     *
+     * @param reservationId the reservation to check in; must be in {@code CONFIRMED}
+     *                      state.
+     * @return a {@link ReservationResponseDTO} for the updated reservation, now
+     *         carrying its assigned room.
+     * @throws ResourceNotFoundException if no reservation exists with the given id.
+     * @throws IllegalArgumentException  if the reservation is not {@code CONFIRMED}.
+     * @throws NoAvailabilityException   if no physical room of the booked type is free
+     *         to assign for the stay.
      */
     @Transactional
     public ReservationResponseDTO checkIn(Long reservationId) {
@@ -263,8 +362,16 @@ public class ReservationService {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Looks up a single reservation by confirmation number.
-     * Used in "Manage My Booking" or check-in flows.
+     * Looks up a single reservation by its human-facing confirmation number.
+     *
+     * <p>Used in "Manage My Booking" and check-in flows. The lookup is keyed by the
+     * confirmation code rather than by ownership, so knowledge of the code is the
+     * access token. Read-only transactional: a pure lookup performing no writes.
+     *
+     * @param confirmationNumber the opaque confirmation code issued at booking time.
+     * @return a {@link ReservationResponseDTO} for the matching reservation.
+     * @throws ResourceNotFoundException if no reservation carries that confirmation
+     *         number.
      */
     @Transactional(readOnly = true)
     public ReservationResponseDTO getReservationByConfirmationNumber(String confirmationNumber) {
@@ -275,7 +382,16 @@ public class ReservationService {
     }
 
     /**
-     * Returns all reservations for the currently authenticated guest (newest first).
+     * Returns every reservation belonging to the currently authenticated guest,
+     * newest stay first.
+     *
+     * <p><strong>Ownership-scoped:</strong> the guest is resolved from the security
+     * context, not from a parameter, so a caller can only ever see their own bookings
+     * (IDOR-safe by construction). Read-only transactional: a pure query.
+     *
+     * @return the caller's reservations as {@link ReservationResponseDTO} views; an
+     *         empty list if they have none.
+     * @throws ResourceNotFoundException if the authenticated guest cannot be resolved.
      */
     @Transactional(readOnly = true)
     public List<ReservationResponseDTO> getMyReservations() {
@@ -294,10 +410,22 @@ public class ReservationService {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Cancels a reservation. Only CONFIRMED reservations can be cancelled.
-     * Refundability is a property of the rate plan, not the status, so the status
-     * simply becomes CANCELLED. The held room-type inventory is released back to
-     * the allotment so the freed nights become sellable again.
+     * Cancels a live booking and releases its held inventory back to the allotment.
+     *
+     * <p><strong>Ownership-scoped:</strong> the authenticated guest must own the
+     * reservation. Only {@code PENDING} (an unpaid hold) and {@code CONFIRMED} (a paid
+     * booking) reservations hold inventory and are therefore cancellable; later states
+     * are not. Refundability is a property of the rate plan, not the status, so the
+     * status simply becomes {@code CANCELLED} and the freed nights become sellable
+     * again.
+     *
+     * <p>Read-write transactional and atomic: the status change and the inventory
+     * release commit together.
+     *
+     * @param reservationId the reservation to cancel.
+     * @throws ResourceNotFoundException if no reservation exists with the given id.
+     * @throws IllegalArgumentException  if the caller does not own the reservation, or
+     *         its status forbids cancellation.
      */
     @Transactional
     public void cancelReservation(Long reservationId) {
@@ -336,15 +464,21 @@ public class ReservationService {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Expires a single lapsed hold: moves a PENDING reservation to EXPIRED and
-     * releases its held nights. Re-checks the status inside the transaction so a
-     * payment that landed between the sweep's query and this call is respected —
-     * only a still-PENDING reservation is expired. The @Version guard turns a
-     * concurrent payment on the same row into an OptimisticLockException, which
-     * the caller lets skip that one reservation rather than clobbering the payment.
+     * Expires a single lapsed hold: moves a {@code PENDING} reservation to
+     * {@code EXPIRED} and releases its held nights back to the allotment.
      *
-     * Runs in its own transaction (per reservation) so one failure or lock
-     * conflict doesn't roll back the rest of the sweep.
+     * <p>Re-checks the status inside the transaction so a payment that landed between
+     * the sweep's query and this call is respected — only a still-{@code PENDING}
+     * reservation is expired; anything else is a no-op. The reservation's
+     * {@code @Version} guard turns a payment committing concurrently on the same row
+     * into an {@link org.springframework.dao.OptimisticLockingFailureException}, which
+     * the caller ({@link HoldExpirySweeper}) catches so that one reservation is
+     * skipped rather than the payment being clobbered.
+     *
+     * <p>Read-write transactional in its own (per-reservation) transaction, so one
+     * failure or lock conflict does not roll back the rest of the sweep.
+     *
+     * @param reservationId the reservation to expire.
      */
     @Transactional
     public void expireHold(Long reservationId) {
@@ -365,9 +499,17 @@ public class ReservationService {
     }
 
     /**
-     * IDs of every PENDING hold whose window has lapsed as of {@code now}. The
-     * sweeper expires each one through the proxied {@link #expireHold(Long)} so
-     * each gets its own transaction; hence this returns IDs, not entities.
+     * Returns the ids of every {@code PENDING} hold whose window has lapsed as of
+     * {@code now}.
+     *
+     * <p>The sweeper expires each one through the proxied {@link #expireHold(Long)} so
+     * each gets its own transaction; this method therefore returns ids rather than
+     * entities, to avoid carrying detached state across those transaction boundaries.
+     * Read-only transactional: a pure query.
+     *
+     * @param now the reference instant; holds with {@code holdExpiresAt} before this
+     *            are considered lapsed. Must not be {@code null}.
+     * @return the ids of lapsed pending holds; an empty list if none have lapsed.
      */
     @Transactional(readOnly = true)
     public List<Long> findLapsedHoldIds(LocalDateTime now) {

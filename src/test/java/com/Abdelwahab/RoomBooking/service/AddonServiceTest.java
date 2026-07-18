@@ -56,6 +56,11 @@ public class AddonServiceTest {
                 .build();
     }
 
+    /**
+     * Given the hotel exists and the repository returns one available add-on;
+     * when the available catalogue is requested; then exactly that add-on is returned
+     * with its available flag set — the read filter surfaces only available rows.
+     */
     @Test
     public void getAvailableAddons_returnsOnlyAvailable_forExistingHotel() {
         when(hotelRepository.existsById(1L)).thenReturn(true);
@@ -68,6 +73,12 @@ public class AddonServiceTest {
         assertThat(result.get(0).available()).isTrue();
     }
 
+    /**
+     * Given the hotel does not exist;
+     * when the available catalogue is requested for it; then a ResourceNotFoundException
+     * naming the id is raised and the add-on repository is never queried — the parent
+     * hotel is validated first.
+     */
     @Test
     public void getAvailableAddons_throws_whenHotelMissing() {
         when(hotelRepository.existsById(99L)).thenReturn(false);
@@ -79,6 +90,11 @@ public class AddonServiceTest {
         verify(addonRepository, never()).findByHotelIdAndAvailableTrue(any());
     }
 
+    /**
+     * Given the hotel exists and a create request omits the availability flag (null);
+     * when the add-on is created; then the captured persisted entity has available
+     * defaulted to true.
+     */
     @Test
     public void createAddon_defaultsAvailableToTrue_whenOmitted() {
         when(hotelRepository.findById(1L)).thenReturn(Optional.of(hotel));
@@ -92,6 +108,12 @@ public class AddonServiceTest {
         assertThat(captor.getValue().getAvailable()).isTrue();
     }
 
+    /**
+     * Given the target add-on belongs to hotel 2 but the update is scoped to hotel 1;
+     * when the update is attempted; then a ResourceNotFoundException reporting the
+     * cross-hotel mismatch is raised and no save occurs — the cross-hotel guard stops
+     * one hotel from mutating another's add-on.
+     */
     @Test
     public void updateAddon_throws_whenAddonBelongsToAnotherHotel() {
         Hotel other = Hotel.builder().id(2L).build();
@@ -106,6 +128,10 @@ public class AddonServiceTest {
         verify(addonRepository, never()).save(any(Addon.class));
     }
 
+    /**
+     * Given the add-on exists and is scoped to the requesting hotel;
+     * when it is deleted; then the repository delete is invoked for that add-on.
+     */
     @Test
     public void deleteAddon_removesAddon_whenScopedToHotel() {
         when(addonRepository.findById(10L)).thenReturn(Optional.of(addon));
