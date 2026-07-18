@@ -13,7 +13,6 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
-import org.springframework.test.context.TestPropertySource;
 
 import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.model.Hotel;
@@ -42,11 +41,10 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
-// Own in-memory DB, isolated from the @SpringBootTest context. Both contexts run
-// schema.sql; sharing the default 'roombookingdb' would fail the second one with
-// "table already exists". A dedicated URL keeps this test's schema self-contained.
-@TestPropertySource(properties =
-        "spring.datasource.url=jdbc:h2:mem:roomrepotest;DB_CLOSE_DELAY=-1")
+// Each context gets its own in-memory DB via the global ${random.uuid} datasource
+// URL in src/test/resources/application.properties, so schema.sql runs cleanly once
+// per context. Without that isolation, a second context reusing the same DB would
+// fail with "table already exists".
 public class RoomRepositoryTest {
 
     @Autowired private RoomRepository roomRepository;

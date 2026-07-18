@@ -13,7 +13,6 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
-import org.springframework.test.context.TestPropertySource;
 
 import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.model.Hotel;
@@ -31,13 +30,12 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
  * status = 'SUCCESS' filter. Every branch of that is a decision only a real DB
  * confirms. findByReservationId is a Spring-derived query, so it isn't tested.
  *
- * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) and a
- * dedicated H2 URL are used.
+ * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) is used.
+ * Per-context DB isolation comes from the global ${random.uuid} datasource URL in
+ * src/test/resources/application.properties.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
-@TestPropertySource(
-    properties = "spring.datasource.url=jdbc:h2:mem:paymentrepotest;DB_CLOSE_DELAY=-1")
 public class PaymentRepositoryTest {
 
     @Autowired private PaymentRepository paymentRepository;

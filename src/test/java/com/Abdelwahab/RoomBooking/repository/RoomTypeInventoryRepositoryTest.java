@@ -17,7 +17,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -33,13 +33,18 @@ import com.Abdelwahab.RoomBooking.model.RoomTypeInventory;
  * pessimistic lock the whole double-booking guarantee rests on. Only a real
  * database proves either; the concurrency test needs two live transactions.
  *
- * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) and a
- * dedicated H2 URL are used (schema.sql + validate; isolate from other contexts).
+ * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) is used
+ * (schema.sql + validate). Per-context DB isolation comes from the global
+ * ${random.uuid} datasource URL in src/test/resources/application.properties.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
-@TestPropertySource(
-    properties = "spring.datasource.url=jdbc:h2:mem:inventoryrepotest;DB_CLOSE_DELAY=-1")
+// The concurrency test COMMITS its seed (commitSeed) instead of rolling back, so
+// those rows outlive the test. Now that all @DataJpaTest classes share one cached
+// context (and one DB), that committed data would leak into the next class and
+// collide on unique constraints (e.g. hotel.phone). Marking the context dirty after
+// this class forces a fresh DB for whatever runs next.
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public class RoomTypeInventoryRepositoryTest {
 
     @Autowired private RoomTypeInventoryRepository inventoryRepository;

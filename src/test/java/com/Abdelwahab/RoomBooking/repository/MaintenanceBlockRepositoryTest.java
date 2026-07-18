@@ -13,7 +13,6 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
-import org.springframework.test.context.TestPropertySource;
 
 import com.Abdelwahab.RoomBooking.model.Hotel;
 import com.Abdelwahab.RoomBooking.model.MaintenanceBlock;
@@ -26,13 +25,12 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
  * The boundary behaviour (touching vs. truly overlapping, and per-room scoping)
  * is exactly what only a real database confirms; a mocked boolean proves nothing.
  *
- * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) and a
- * dedicated H2 URL are used.
+ * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) is used.
+ * Per-context DB isolation comes from the global ${random.uuid} datasource URL in
+ * src/test/resources/application.properties.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
-@TestPropertySource(
-    properties = "spring.datasource.url=jdbc:h2:mem:maintenancerepotest;DB_CLOSE_DELAY=-1")
 public class MaintenanceBlockRepositoryTest {
 
     @Autowired private MaintanceBlockRepository maintenanceBlockRepository;
