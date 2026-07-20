@@ -131,8 +131,7 @@ src/main/java/com/Abdelwahab/RoomBooking/
 
 Tracked honestly in the [technical-debt ledger](docs/ARCHITECTURE.md#6-known-technical-debt--next-steps).
 Highlights: JWTs are not server-side revocable (logout is client-side only),
-unauthenticated requests currently return `403` rather than `401` (no
-`AuthenticationEntryPoint`), there is no CORS configuration yet, and the JWT signing
+there is no CORS configuration yet, and the JWT signing
 secret lives in `application.yaml` (should be externalized per environment).
 Interactive API docs (SpringDoc/OpenAPI) are deferred pending Spring Boot 4 / Spring 7
 compatibility; until then, [docs/API.md](docs/API.md) is the endpoint reference.

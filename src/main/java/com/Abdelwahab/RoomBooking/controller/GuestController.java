@@ -26,8 +26,8 @@ import lombok.RequiredArgsConstructor;
  * <p><strong>Security &amp; scope.</strong> The {@code /api/guests/**} path matches no
  * explicit rule in {@code SecurityConfig}, so it falls to the
  * {@code anyRequest().authenticated()} default: any logged-in caller, regardless of
- * role, may read a profile. Because there is no {@code AuthenticationEntryPoint}, an
- * unauthenticated request yields {@code 403 Forbidden}. Note the lookup is keyed by
+ * role, may read a profile. An unauthenticated request yields {@code 401 Unauthorized}
+ * (via {@code RestAuthenticationEntryPoint}). Note the lookup is keyed by
  * id rather than by the caller's identity, so it is not ownership-scoped.
  *
  * <p><strong>Error contract.</strong> Domain exceptions are mapped centrally by

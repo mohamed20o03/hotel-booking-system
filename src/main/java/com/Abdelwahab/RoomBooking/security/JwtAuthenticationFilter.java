@@ -30,9 +30,10 @@ import lombok.RequiredArgsConstructor;
  *
  * <p>If no valid token is present, the filter does not reject the request itself;
  * it passes through unauthenticated and lets the authorization rules in
- * {@link SecurityConfig} decide the outcome. Because no
- * {@code AuthenticationEntryPoint} is configured, an unauthenticated request to a
- * protected endpoint is rejected as {@code 403 FORBIDDEN}.
+ * {@link SecurityConfig} decide the outcome. An unauthenticated request to a
+ * protected endpoint is then rejected by {@code RestAuthenticationEntryPoint} as
+ * {@code 401 UNAUTHORIZED}, while an authenticated caller lacking the required role
+ * is rejected as {@code 403 FORBIDDEN}.
  *
  * @see JwtService
  * @see SecurityConfig
@@ -126,9 +127,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // ── Step 6: Continue the filter chain ─────────────────────────────────────
         // Whether authenticated or not, pass the request to the next filter/controller.
-        // If unauthenticated and the endpoint requires auth, Spring Security rejects it.
-        // Note: with no AuthenticationEntryPoint configured, that rejection is a
-        // 403 Forbidden (not the conventional 401 Unauthorized).
+        // If unauthenticated and the endpoint requires auth, Spring Security rejects it
+        // via RestAuthenticationEntryPoint as 401 Unauthorized (an authenticated caller
+        // lacking the role is rejected as 403 Forbidden instead).
         filterChain.doFilter(request, response);
     }
 }

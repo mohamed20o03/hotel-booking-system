@@ -139,8 +139,9 @@ public class HotelControllerTest {
     /**
      * Given no authenticated identity;
      * when an anonymous caller POSTs a valid body to /api/hotels; then the response is
-     * 403 Forbidden (not 401) and the service is never reached — the write is closed to
-     * anonymous callers just as it is to non-admins.
+     * 401 Unauthorized (via RestAuthenticationEntryPoint) and the service is never
+     * reached — an anonymous caller is told to authenticate, whereas an authenticated
+     * non-admin is told they are forbidden (403).
      */
     @Test
     @WithAnonymousUser
@@ -148,7 +149,7 @@ public class HotelControllerTest {
         mockMvc.perform(post("/api/hotels")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         verify(hotelService, never()).createHotel(any());
     }

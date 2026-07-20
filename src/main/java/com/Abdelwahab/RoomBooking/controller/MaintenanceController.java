@@ -34,16 +34,16 @@ import lombok.RequiredArgsConstructor;
  * actions. Enforcement is layered: {@code SecurityConfig} gates the whole
  * {@code /api/maintenance/**} prefix with {@code hasRole("ADMIN")}, and
  * {@code @PreAuthorize("hasRole('ADMIN')")} repeats the check on each method so the
- * guard survives a URL-rule refactor. Because there is no
- * {@code AuthenticationEntryPoint}, an unauthenticated request, and an authenticated
- * non-admin request alike, both yield {@code 403 Forbidden}.
+ * guard survives a URL-rule refactor. An unauthenticated request yields
+ * {@code 401 Unauthorized} (via {@code RestAuthenticationEntryPoint}), whereas an
+ * authenticated non-admin request yields {@code 403 Forbidden}.
  *
  * <p><strong>Error contract.</strong> Domain exceptions are mapped centrally by
  * {@code GlobalExceptionHandler}: {@code ResourceNotFoundException → 404},
  * {@code DuplicateResourceException} (overlapping block) and
  * {@code NoAvailabilityException} (a blocked night is already fully sold)
- * {@code → 409}, bean-validation failures on {@code @Valid → 400}, and authorization
- * failures {@code → 403}.
+ * {@code → 409}, bean-validation failures on {@code @Valid → 400}, authentication
+ * failures {@code → 401}, and authorization failures {@code → 403}.
  *
  * @see MaintenanceService
  * @see com.Abdelwahab.RoomBooking.exception.GlobalExceptionHandler
@@ -78,7 +78,8 @@ public class MaintenanceController {
      * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
      *         fails bean validation (mapped to {@code 400}).
      * @throws org.springframework.security.access.AccessDeniedException if the caller
-     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     *         is authenticated but not an admin (mapped to {@code 403}); an
+     *         unauthenticated caller is instead rejected with {@code 401} beforehand.
      */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -98,7 +99,8 @@ public class MaintenanceController {
      * @throws com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException if no
      *         block has that id (mapped to {@code 404}).
      * @throws org.springframework.security.access.AccessDeniedException if the caller
-     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     *         is authenticated but not an admin (mapped to {@code 403}); an
+     *         unauthenticated caller is instead rejected with {@code 401} beforehand.
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")

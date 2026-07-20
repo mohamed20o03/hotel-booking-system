@@ -49,17 +49,18 @@ Every error returns a consistent JSON body, produced centrally by
 
 | Status | When |
 |---|---|
-| `400 Bad Request` | `@Valid` body validation failed, a malformed date range, or an ownership/state-transition violation raised as `IllegalArgumentException`. |
-| `403 Forbidden` | **Both** unauthenticated access *and* insufficient role. See the note below. |
+| `400 Bad Request` | `@Valid` body validation failed, a malformed date query param (`DateTimeParseException`), or an ownership/state-transition violation raised as `IllegalArgumentException`. |
+| `401 Unauthorized` | Unauthenticated access to a protected route (via `RestAuthenticationEntryPoint`), or bad login credentials (`AuthenticationException`). See the note below. |
+| `403 Forbidden` | Authenticated but insufficient role (`AccessDeniedException`). See the note below. |
 | `404 Not Found` | Target resource does not exist (`ResourceNotFoundException`). |
 | `409 Conflict` | Business conflict: no inventory/room (`NoAvailabilityException`), duplicate unique value (`DuplicateResourceException`), or an unpayable reservation (`PaymentException`). |
-| `500 Internal Server Error` | Unmapped failures — notably bad login credentials (`AuthenticationException`) and a malformed date query string (`DateTimeParseException`), neither of which is remapped. |
+| `500 Internal Server Error` | Unmapped/unexpected failures. |
 
-> **⚠️ 403 vs 401.** There is no custom `AuthenticationEntryPoint`, so an
-> *unauthenticated* request to a protected route returns **`403 Forbidden`, not
-> `401 Unauthorized`**. This is the real runtime behavior and is documented as such
-> throughout. See the tech-debt ledger in
-> [ARCHITECTURE.md](ARCHITECTURE.md#6-known-technical-debt--next-steps).
+> **⚠️ 401 vs 403.** A `RestAuthenticationEntryPoint` is registered, so an
+> *unauthenticated* request to a protected route returns **`401 Unauthorized`**,
+> while an *authenticated* caller who lacks the required role returns **`403
+> Forbidden`**. The two are distinguishable by clients. See
+> [ARCHITECTURE.md](ARCHITECTURE.md#error-handling--web-contracts) for the full mapping.
 
 ---
 
@@ -91,7 +92,7 @@ Every error returns a consistent JSON body, produced centrally by
 - **`400`** — validation failure. **`409`** — email already registered.
 
 **`POST /api/auth/login`** — body: `{ "email": "jane@example.com", "password": "s3cret-pw" }`
-- **`200 OK`** — no body; `jwt` cookie set. **`500`** — bad credentials (unmapped `AuthenticationException`).
+- **`200 OK`** — no body; `jwt` cookie set. **`400`** — validation failure. **`401`** — bad credentials (`AuthenticationException`).
 
 ---
 
@@ -158,7 +159,7 @@ Every error returns a consistent JSON body, produced centrally by
 Example: `/api/hotels/1/availability?checkIn=2026-12-10&checkOut=2026-12-13&guests=2`
 - **`200 OK`** → array of `AvailabilityResponseDTO` (`roomTypeId`, `roomTypeName`,
   `description`, `maxOccupancy`, `availableRoomsCount`, `basePricePerNight`, `currency`).
-- **`500`** — a non-ISO `checkIn`/`checkOut` raises `DateTimeParseException`, which is not remapped.
+- **`400`** — a non-ISO `checkIn`/`checkOut` raises `DateTimeParseException`, mapped to Bad Request.
 
 ---
 
@@ -183,7 +184,7 @@ Example: `/api/hotels/1/availability?checkIn=2026-12-10&checkOut=2026-12-13&gues
 ```
 - **`201 Created`** → `ReservationConfirmationDTO` (status `PENDING`). Dates must be
   present/future and check-out after check-in.
-- **`400`** validation / invalid date range. **`403`** unauthenticated. **`409`** no inventory for a night in the range.
+- **`400`** validation / invalid date range. **`401`** unauthenticated. **`409`** no inventory for a night in the range.
 
 **`PATCH /api/reservations/{id}/cancel`**
 - **`204 No Content`** on success. **`400`** caller does not own it, or status not
@@ -242,7 +243,7 @@ Example: `/api/hotels/1/availability?checkIn=2026-12-10&checkOut=2026-12-13&gues
 |---|---|---|---|
 | `GET` | `/api/guests/{id}` | Authenticated | Fetch a guest profile by id. |
 
-- **`200 OK`** → `GuestResponseDTO`. **`403`** unauthenticated. **`404`** not found.
+- **`200 OK`** → `GuestResponseDTO`. **`401`** unauthenticated. **`404`** not found.
 
 ---
 

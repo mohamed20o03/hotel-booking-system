@@ -48,8 +48,7 @@ import lombok.RequiredArgsConstructor;
  * {@code GlobalExceptionHandler}: a duplicate email on registration raises
  * {@code DuplicateResourceException → 409}, and bean-validation failures on
  * {@code @Valid → 400}. Bad login credentials raise an {@code AuthenticationException},
- * which is not remapped and therefore surfaces through the catch-all as
- * {@code 500 Internal Server Error}.
+ * which is mapped to {@code 401 Unauthorized} with a generic message.
  *
  * @see AuthenticationService
  * @see com.Abdelwahab.RoomBooking.exception.GlobalExceptionHandler
@@ -102,8 +101,7 @@ public class AuthController {
      * @param response the servlet response the {@code Set-Cookie} header is written to.
      * @return {@code 200 OK} with no body; the JWT is delivered via the cookie.
      * @throws org.springframework.security.core.AuthenticationException if the
-     *         credentials are invalid; not remapped, so it surfaces via the catch-all
-     *         as {@code 500}.
+     *         credentials are invalid (mapped to {@code 401}).
      * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
      *         fails bean validation (mapped to {@code 400}).
      */

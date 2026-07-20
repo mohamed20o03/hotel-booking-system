@@ -132,7 +132,8 @@ public class MaintenanceControllerTest {
     /**
      * Given no authenticated identity;
      * when an anonymous caller POSTs a valid body to /api/maintenance; then the response
-     * is 403 Forbidden (not 401) and the service is never reached.
+     * is 401 Unauthorized (via RestAuthenticationEntryPoint) and the service is never
+     * reached.
      */
     // 3. Auth — an anonymous request is rejected before hitting the controller.
     @Test
@@ -141,7 +142,7 @@ public class MaintenanceControllerTest {
         mockMvc.perform(post("/api/maintenance")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         verify(maintenanceService, never()).createBlock(any());
     }

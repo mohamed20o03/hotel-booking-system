@@ -109,15 +109,15 @@ public class ReservationControllerTest {
     /**
      * Given no authenticated identity;
      * when an anonymous caller GETs /api/reservations/my-reservations; then the
-     * anyRequest().authenticated() rule rejects it with 403 Forbidden (not 401) and the
-     * service is never reached.
+     * anyRequest().authenticated() rule rejects it with 401 Unauthorized (via
+     * RestAuthenticationEntryPoint) and the service is never reached.
      */
     // The anyRequest().authenticated() default: no identity -> never reaches the controller.
     @Test
     @WithAnonymousUser
     public void getMyReservations_rejectsAnonymous() throws Exception {
         mockMvc.perform(get("/api/reservations/my-reservations"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         verify(reservationService, never()).getMyReservations();
     }
@@ -242,6 +242,30 @@ public class ReservationControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(reservationService, never()).createBooking(any());
+    }
+
+    // ── 5. Malformed date param on the public availability search -> 400 ─
+
+    /**
+     * Given the public availability search and a checkIn that is not an ISO-8601 date;
+     * when it is GETed on /api/hotels/{id}/availability; then LocalDate.parse throws
+     * DateTimeParseException in the controller, which GlobalExceptionHandler maps to
+     * 400 Bad Request (with a body status of 400) rather than letting it escape as an
+     * unhandled 500, and the service is never reached.
+     */
+    // Malformed checkIn -> DateTimeParseException -> 400 (not 500).
+    @Test
+    @WithMockUser(roles = "USER")
+    public void searchAvailability_returns400_onMalformedDate() throws Exception {
+        mockMvc.perform(get("/api/hotels/1/availability")
+                        .param("checkIn", "not-a-date")
+                        .param("checkOut", "2026-12-13")
+                        .param("guests", "2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+
+        verify(reservationService, never())
+                .searchAvailableOptions(anyLong(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     // cancelReservation returns void, so it needs Mockito's doThrow form.

@@ -46,14 +46,15 @@ import lombok.RequiredArgsConstructor;
  *       each method, so the guard survives a URL-rule refactor.</li>
  * </ul>
  * Every write is scoped to the hotel in the path, so one hotel's add-on can never be
- * mutated through another hotel's URL. Because there is no
- * {@code AuthenticationEntryPoint}, an unauthenticated request to a protected verb,
- * and an authenticated non-admin request alike, both yield {@code 403 Forbidden}.
+ * mutated through another hotel's URL. An unauthenticated request to a protected verb
+ * yields {@code 401 Unauthorized} (via {@code RestAuthenticationEntryPoint}), whereas
+ * an authenticated non-admin request yields {@code 403 Forbidden}.
  *
  * <p><strong>Error contract.</strong> Domain exceptions are mapped centrally by
  * {@code GlobalExceptionHandler}: {@code ResourceNotFoundException → 404} (unknown
  * hotel or add-on, or an add-on that belongs to a different hotel), bean-validation
- * failures on {@code @Valid → 400}, and authorization failures {@code → 403}.
+ * failures on {@code @Valid → 400}, authentication failures {@code → 401}, and
+ * authorization failures {@code → 403}.
  *
  * @see AddonService
  * @see com.Abdelwahab.RoomBooking.exception.GlobalExceptionHandler
@@ -99,7 +100,8 @@ public class AddonController {
      * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
      *         fails bean validation (mapped to {@code 400}).
      * @throws org.springframework.security.access.AccessDeniedException if the caller
-     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     *         is authenticated but not an admin (mapped to {@code 403}); an
+     *         unauthenticated caller is instead rejected with {@code 401} beforehand.
      */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -126,7 +128,8 @@ public class AddonController {
      * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
      *         fails bean validation (mapped to {@code 400}).
      * @throws org.springframework.security.access.AccessDeniedException if the caller
-     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     *         is authenticated but not an admin (mapped to {@code 403}); an
+     *         unauthenticated caller is instead rejected with {@code 401} beforehand.
      */
     @PutMapping("/{addonId}")
     @PreAuthorize("hasRole('ADMIN')")
@@ -150,7 +153,8 @@ public class AddonController {
      *         such add-on exists or it belongs to a different hotel (mapped to
      *         {@code 404}).
      * @throws org.springframework.security.access.AccessDeniedException if the caller
-     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     *         is authenticated but not an admin (mapped to {@code 403}); an
+     *         unauthenticated caller is instead rejected with {@code 401} beforehand.
      */
     @DeleteMapping("/{addonId}")
     @PreAuthorize("hasRole('ADMIN')")

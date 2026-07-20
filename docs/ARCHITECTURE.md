@@ -132,6 +132,8 @@ external contract:
 |-----------------------------------------------------------------|-------------|----------------------------------------|
 | `MethodArgumentNotValidException` (`@Valid`) / malformed JSON   | **400**     | Bad request body                       |
 | `IllegalArgumentException` (invalid state transition, IDOR)     | **400**     | Business precondition failed           |
+| `DateTimeParseException` (malformed date query param)           | **400**     | Bad request parameter                  |
+| `AuthenticationException` (bad login credentials)               | **401**     | Not authenticated                      |
 | `AccessDeniedException` (RBAC via URL rule / `@PreAuthorize`)   | **403**     | Authenticated but not permitted        |
 | `ResourceNotFoundException`                                     | **404**     | No such resource                       |
 | `NoAvailabilityException` / `DuplicateResourceException` / `PaymentException` | **409** | Business state conflict     |
@@ -140,11 +142,11 @@ external contract:
 Every response body is a uniform `ErrorResponse` (`timestamp`, `status`, `error`,
 `message`, `path`).
 
-> **Contract accuracy note (401 vs 403).** There is no `AuthenticationEntryPoint`
-> configured, so an **unauthenticated** request to a protected endpoint returns
-> **403**, not 401 — verified by `ReservationControllerTest`. Some source comments
-> still say "401"; the real, tested contract is 403 for both *unauthenticated* and
-> *unauthorized*. Splitting these is tracked in §6.
+> **Contract accuracy note (401 vs 403).** A `RestAuthenticationEntryPoint` is
+> registered, so an **unauthenticated** request to a protected endpoint returns
+> **401** (verified by the controller tests), while an **authenticated** caller who
+> lacks the required role returns **403**. The two failure modes are distinguishable
+> by clients.
 
 ---
 
@@ -188,9 +190,6 @@ An honest ledger of current trade-offs. Security-specific gaps are expanded in
   cryptographically valid until it expires. There is no server-side revocation
   list, so a token captured before logout still works. *Next:* a short-lived
   access token + refresh token, or a revocation/`jti` denylist.
-- **401 vs 403 not distinguished.** No `AuthenticationEntryPoint`, so
-  unauthenticated requests return 403 instead of 401. *Next:* add an entry point
-  that emits 401 for "not logged in", leaving 403 for "logged in, not allowed".
 - **No CORS configuration.** Fine for same-origin/non-browser clients; a
   cross-origin SPA cannot send the credentialed cookie until a proper CORS bean
   exists (explicit origins + `allowCredentials(true)`, never `*` with credentials).
@@ -203,6 +202,5 @@ An honest ledger of current trade-offs. Security-specific gaps are expanded in
   present, and its Boot 4.1 / Spring 7 compatibility is unverified. When added, the
   cookie-auth `SecurityScheme` and per-endpoint `@Operation`/`@ApiResponses`
   annotations should follow the mapping table in §3.
-- **Documentation drift.** A few source comments predate the current behaviour
-  (e.g. the "401" comment in `JwtAuthenticationFilter`). Treat this document and
-  the tests as the source of truth for the contract.
+- **Documentation drift.** Treat this document and the tests as the source of
+  truth for the contract if a stray source comment ever disagrees.

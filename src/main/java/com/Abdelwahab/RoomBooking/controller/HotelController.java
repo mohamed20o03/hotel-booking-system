@@ -44,14 +44,14 @@ import lombok.RequiredArgsConstructor;
  *       gated both by the verb-specific URL rules in {@code SecurityConfig} and by
  *       {@code @PreAuthorize("hasRole('ADMIN')")} on each method.</li>
  * </ul>
- * Because there is no {@code AuthenticationEntryPoint}, an unauthenticated request to
- * a protected verb, and an authenticated non-admin request alike, both yield
- * {@code 403 Forbidden}.
+ * An unauthenticated request to a protected verb yields {@code 401 Unauthorized} (via
+ * {@code RestAuthenticationEntryPoint}), whereas an authenticated non-admin request
+ * yields {@code 403 Forbidden}.
  *
  * <p><strong>Error contract.</strong> Domain exceptions are mapped centrally by
  * {@code GlobalExceptionHandler}: {@code ResourceNotFoundException → 404},
- * bean-validation failures on {@code @Valid → 400}, and authorization failures
- * {@code → 403}.
+ * bean-validation failures on {@code @Valid → 400}, authentication failures
+ * {@code → 401}, and authorization failures {@code → 403}.
  *
  * @see HotelService
  * @see com.Abdelwahab.RoomBooking.exception.GlobalExceptionHandler
@@ -106,7 +106,8 @@ public class HotelController {
      * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
      *         fails bean validation (mapped to {@code 400}).
      * @throws org.springframework.security.access.AccessDeniedException if the caller
-     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     *         is authenticated but not an admin (mapped to {@code 403}); an
+     *         unauthenticated caller is instead rejected with {@code 401} beforehand.
      */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -129,7 +130,8 @@ public class HotelController {
      * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
      *         fails bean validation (mapped to {@code 400}).
      * @throws org.springframework.security.access.AccessDeniedException if the caller
-     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     *         is authenticated but not an admin (mapped to {@code 403}); an
+     *         unauthenticated caller is instead rejected with {@code 401} beforehand.
      */
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
@@ -148,7 +150,8 @@ public class HotelController {
      * @throws com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException if no
      *         hotel has that id (mapped to {@code 404}).
      * @throws org.springframework.security.access.AccessDeniedException if the caller
-     *         is not an admin, or is unauthenticated (both mapped to {@code 403}).
+     *         is authenticated but not an admin (mapped to {@code 403}); an
+     *         unauthenticated caller is instead rejected with {@code 401} beforehand.
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")

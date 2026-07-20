@@ -31,9 +31,8 @@ import lombok.RequiredArgsConstructor;
  * {@code anyRequest().authenticated()} default: any logged-in caller, regardless of
  * role, may pay. The payment is <strong>ownership-scoped</strong> in the service —
  * the caller is resolved from the security context and must own the reservation, so
- * a guest cannot pay for someone else's booking by guessing an id. Because there is
- * no {@code AuthenticationEntryPoint}, an unauthenticated request yields
- * {@code 403 Forbidden}.
+ * a guest cannot pay for someone else's booking by guessing an id. An unauthenticated
+ * request yields {@code 401 Unauthorized} (via {@code RestAuthenticationEntryPoint}).
  *
  * <p><strong>Error contract.</strong> Domain exceptions are mapped centrally by
  * {@code GlobalExceptionHandler}: {@code ResourceNotFoundException → 404},

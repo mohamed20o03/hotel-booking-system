@@ -8,6 +8,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -42,7 +43,16 @@ import lombok.RequiredArgsConstructor;
  * <p>{@link EnableMethodSecurity} additionally activates {@code @PreAuthorize}
  * checks used at the method level in the controllers.
  *
+ * <p><strong>Authentication vs authorization failures.</strong> A
+ * {@link RestAuthenticationEntryPoint} is registered via
+ * {@code exceptionHandling}, so an <em>unauthenticated</em> request to a protected
+ * endpoint returns {@code 401 UNAUTHORIZED}. An <em>authenticated</em> caller who
+ * lacks the required role is handled separately as {@code 403 FORBIDDEN} by
+ * {@code GlobalExceptionHandler}. The two failure modes are therefore distinguishable
+ * by clients.
+ *
  * @see JwtAuthenticationFilter
+ * @see RestAuthenticationEntryPoint
  * @see ApplicationConfig
  */
 @Configuration
@@ -53,12 +63,14 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final AuthenticationProvider authenticationProvider;
+    private final AuthenticationEntryPoint authenticationEntryPoint;
 
     /**
      * Builds the application's single {@link SecurityFilterChain}: disables CSRF,
      * declares the URL-based authorization rules, enforces a stateless session
-     * policy, registers the {@link AuthenticationProvider}, and inserts the
-     * {@link JwtAuthenticationFilter} ahead of
+     * policy, registers the {@link RestAuthenticationEntryPoint} (so unauthenticated
+     * access yields {@code 401}), registers the {@link AuthenticationProvider}, and
+     * inserts the {@link JwtAuthenticationFilter} ahead of
      * {@link UsernamePasswordAuthenticationFilter}.
      *
      * @param http the {@link HttpSecurity} builder supplied by Spring Security
@@ -85,6 +97,10 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // Unauthenticated access to a protected endpoint returns 401 (not the
+            // default bare 403). Authenticated-but-unauthorized still yields 403 via
+            // the access-denied path handled in GlobalExceptionHandler.
+            .exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint))
             .authenticationProvider(authenticationProvider)
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

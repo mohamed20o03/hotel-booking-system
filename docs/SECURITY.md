@@ -69,7 +69,8 @@ Sections are grouped into four parts. Section numbers are stable — the body cr
 | `AuthenticationService` | `service/AuthenticationService.java` | Orchestrates register/login; asks `JwtService` for a token |
 | `AuthController` | `controller/AuthController.java` | `/api/auth/*` endpoints; builds and clears the `Set-Cookie` header |
 | `Guest` | `model/Guest.java` | Implements `UserDetails`; its `role` column is the sole authority source |
-| `GlobalExceptionHandler` | `exception/GlobalExceptionHandler.java` | Maps `AccessDeniedException` → 403 |
+| `GlobalExceptionHandler` | `exception/GlobalExceptionHandler.java` | Maps `AuthenticationException` → 401, `AccessDeniedException` → 403 |
+| `RestAuthenticationEntryPoint` | `security/RestAuthenticationEntryPoint.java` | Answers unauthenticated access to a protected route with 401 |
 
 How they connect at runtime:
 
@@ -294,14 +295,15 @@ The authorities come from `userDetails.getAuthorities()` — i.e. `Guest.getAuth
 can reach it via `@AuthenticationPrincipal` and services via `SecurityContextHolder`.
 
 **Step 6 — continue.** `filterChain.doFilter(...)` runs whether or not
-authentication succeeded. If the endpoint required auth and none was set, Spring
-Security produces the 401/403 downstream.
+authentication succeeded. If the endpoint required auth and none was set,
+`RestAuthenticationEntryPoint` produces a **401** downstream; an authenticated
+caller lacking the required role gets a **403**.
 
 > **Subtle point:** validation failures inside step 5 are swallowed silently — the
 > filter simply leaves the context empty and continues. The request then gets
 > rejected by the authorization rules, not by an explicit "bad token" error. That
-> keeps the filter simple but means the client sees a generic 403, not "your token
-> expired." See §9.
+> keeps the filter simple but means the client sees a generic **401** (via the entry
+> point), not "your token expired." See §9.
 
 ---
 
@@ -498,11 +500,13 @@ Honest list — none are hidden, and several are the project's natural next step
    access token + server-side refresh token with a revocation list, or a
    per-user token version claim checked against the DB.
 
-4. **Expired/invalid tokens yield a generic 403, not a specific 401.** The filter
-   swallows validation failures and lets the authorization layer reject the request
-   (§4). Clients can't distinguish "log in again" from "you lack permission."
-   **Fix:** an `AuthenticationEntryPoint` that emits 401 with a clear body on
-   missing/expired credentials.
+4. **Missing/expired credentials now yield 401, not a generic 403.** *(Resolved.)*
+   `RestAuthenticationEntryPoint` is registered on the filter chain, so an
+   unauthenticated request to a protected endpoint returns **401**, while an
+   authenticated caller lacking the role returns **403** — clients can distinguish
+   "log in again" from "you lack permission." The filter still swallows token
+   validation failures (§4), so a *specific* "your token expired" body is not yet
+   emitted; that refinement remains open.
 
 5. **`Secure=true` in local dev.** The cookie only flies over HTTPS, so plain-HTTP
    local testing won't receive it. **Fix:** profile-conditional `secure` flag.
@@ -531,6 +535,7 @@ Honest list — none are hidden, and several are the project's natural next step
 | How authorities are derived | `Guest.getAuthorities()` |
 | Add a new role | set it on `Guest.role`; guard with `hasRole('NAME')` (no `ROLE_` prefix in the check) |
 | Response status for access-denied | `GlobalExceptionHandler` (`AccessDeniedException` → 403) |
+| Response status for unauthenticated | `RestAuthenticationEntryPoint` (→ 401) |
 
 ---
 

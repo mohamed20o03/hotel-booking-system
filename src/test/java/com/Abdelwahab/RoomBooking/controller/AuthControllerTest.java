@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -18,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -135,5 +137,27 @@ public class AuthControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(authenticationService, never()).login(any());
+    }
+
+    /**
+     * Given the authentication service rejects the credentials with
+     * BadCredentialsException (an AuthenticationException);
+     * when a well-formed login body is POSTed to /api/auth/login; then
+     * GlobalExceptionHandler maps it to 401 Unauthorized with a body status of 401 and
+     * a generic message — a failed credential check, not an unhandled 500, and no
+     * user-enumeration hint about which field was wrong.
+     */
+    @Test
+    @WithAnonymousUser
+    public void login_returns401_onBadCredentials() throws Exception {
+        when(authenticationService.login(any()))
+                .thenThrow(new BadCredentialsException("Bad credentials"));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(LOGIN_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("Invalid email or password."));
     }
 }

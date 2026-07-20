@@ -36,9 +36,8 @@ import lombok.RequiredArgsConstructor;
  * <p><strong>Error contract.</strong> This endpoint takes no {@code @Valid} body and
  * throws no domain exceptions of its own; the underlying read is tolerant of an
  * unknown hotel (returning an empty list). A malformed {@code checkIn}/{@code checkOut}
- * value raises a {@code DateTimeParseException} during parsing, which is not remapped
- * by {@code GlobalExceptionHandler} and therefore surfaces through its catch-all as
- * {@code 500 Internal Server Error}.
+ * value raises a {@code DateTimeParseException} during parsing, which
+ * {@code GlobalExceptionHandler} maps to {@code 400 Bad Request}.
  *
  * @see ReservationService
  * @see com.Abdelwahab.RoomBooking.exception.GlobalExceptionHandler
@@ -69,8 +68,7 @@ public class SearchController {
      *         empty list if nothing is bookable for the criteria (including an unknown
      *         hotel).
      * @throws java.time.format.DateTimeParseException if {@code checkIn} or
-     *         {@code checkOut} is not a valid ISO-8601 date (surfaces via the
-     *         catch-all as {@code 500}).
+     *         {@code checkOut} is not a valid ISO-8601 date (mapped to {@code 400}).
      */
     @GetMapping("/{hotelId}/availability")
     public ResponseEntity<List<AvailabilityResponseDTO>> searchAvailability(

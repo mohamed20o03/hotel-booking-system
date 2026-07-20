@@ -89,8 +89,8 @@ public class PaymentControllerTest {
     /**
      * Given no authenticated identity;
      * when an anonymous caller POSTs a valid body to /api/payments; then the
-     * anyRequest().authenticated() rule rejects it with 403 Forbidden (not 401) and the
-     * service is never reached.
+     * anyRequest().authenticated() rule rejects it with 401 Unauthorized (via
+     * RestAuthenticationEntryPoint) and the service is never reached.
      */
     @Test
     @WithAnonymousUser
@@ -98,7 +98,7 @@ public class PaymentControllerTest {
         mockMvc.perform(post("/api/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         verify(paymentService, never()).pay(any());
     }
