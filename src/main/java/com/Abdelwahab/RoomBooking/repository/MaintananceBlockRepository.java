@@ -24,7 +24,7 @@ import com.Abdelwahab.RoomBooking.model.MaintenanceBlock;
  * @see RoomRepository#findAvailableRooms
  */
 @Repository
-public interface MaintanceBlockRepository extends JpaRepository<MaintenanceBlock, Long>{
+public interface MaintananceBlockRepository extends JpaRepository<MaintenanceBlock, Long>{
 
     /**
      * Reports whether a room already has a maintenance block overlapping the proposed

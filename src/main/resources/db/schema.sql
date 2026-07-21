@@ -148,6 +148,7 @@ CREATE TABLE guest (
     date_of_birth   DATE         NOT NULL,
     loyalty_tier    VARCHAR(20)  DEFAULT 'STANDARD', -- e.g., STANDARD, SILVER, GOLD
     role            VARCHAR(20)  NOT NULL DEFAULT 'ROLE_USER', -- Spring Security authority: ROLE_USER | ROLE_ADMIN
+    banned          BOOLEAN      NOT NULL DEFAULT FALSE,        -- When TRUE, login is blocked by isAccountNonLocked()
     created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 

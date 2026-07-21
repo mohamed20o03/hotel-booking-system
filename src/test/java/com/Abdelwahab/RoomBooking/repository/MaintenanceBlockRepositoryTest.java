@@ -33,7 +33,7 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
 @AutoConfigureTestDatabase(replace = Replace.NONE)
 public class MaintenanceBlockRepositoryTest {
 
-    @Autowired private MaintanceBlockRepository maintenanceBlockRepository;
+    @Autowired private MaintananceBlockRepository maintenanceBlockRepository;
     @Autowired private TestEntityManager em;
 
     // Static so unique fixture fields never collide across tests.

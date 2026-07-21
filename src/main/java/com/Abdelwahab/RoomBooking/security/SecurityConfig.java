@@ -82,8 +82,12 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable()) // Disable CSRF since we are using JWTs
             .authorizeHttpRequests(auth -> auth
-                // Public: registration/login and browsing the hotel catalogue (reads only).
-                .requestMatchers("/api/auth/**").permitAll()
+                // Public: registration, login, and logout only.
+                .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
+                // Admin ban — requires ROLE_ADMIN (also guarded by @PreAuthorize).
+                .requestMatchers("/api/auth/admin/**").hasRole("ADMIN")
+                // Password change — requires any authenticated session.
+                .requestMatchers("/api/auth/me/**").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/hotels/**").permitAll()
                 // Staff-only writes on the catalogue. These GET rules above already
                 // allowed reads; these gate the mutating verbs to admins.

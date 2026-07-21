@@ -1,12 +1,15 @@
-    package com.Abdelwahab.RoomBooking.service;
+package com.Abdelwahab.RoomBooking.service;
 
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.Abdelwahab.RoomBooking.dto.ChangePasswordRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.GuestRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.GuestResponseDTO;
 import com.Abdelwahab.RoomBooking.exception.DuplicateResourceException;
+import com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException;
 import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.repository.GuestRepository;
 
@@ -113,5 +116,73 @@ public class GuestService {
             guest.getLoyaltyTier(),
             guest.getCreatedAt()
         );
+    }
+
+    /**
+     * Changes the authenticated guest's password after verifying the current credential.
+     *
+     * <p><strong>Security flow.</strong>
+     * <ol>
+     *   <li>The caller's current password is compared against the stored BCrypt hash.
+     *       If it does not match, {@link BadCredentialsException} is thrown before
+     *       any write occurs — a captured session cookie alone cannot change credentials.</li>
+     *   <li>The new password is BCrypt-hashed and persisted.</li>
+     *   <li>The guest's numeric ID is returned so the calling service can immediately
+     *       issue a global user-level revocation ({@code blacklist:user:<id>}), forcing
+     *       every other device to re-authenticate with fresh credentials.</li>
+     * </ol>
+     *
+     * <p>Read-write transactional: the load, verify, and save are atomic.
+     *
+     * @param email   the authenticated guest's email (sourced from the security context,
+     *                never from the request body)
+     * @param request the current and new passwords
+     * @return the guest's numeric primary key, used by the caller to trigger
+     *         global token revocation
+     * @throws ResourceNotFoundException if no guest exists with the given email
+     *         (should never happen in normal flow since the caller is authenticated)
+     * @throws BadCredentialsException   if {@code currentPassword} does not match the
+     *         stored hash
+     */
+    @Transactional
+    public Long changePassword(String email, ChangePasswordRequestDTO request) {
+        Guest guest = guestRepository.findByEmail(email)
+            .orElseThrow(() -> new ResourceNotFoundException("Guest not found: " + email));
+
+        if (!passwordEncoder.matches(request.currentPassword(), guest.getPassword())) {
+            throw new BadCredentialsException("Current password is incorrect");
+        }
+
+        guest.setPassword(passwordEncoder.encode(request.newPassword()));
+        guestRepository.save(guest);
+
+        return guest.getId();
+    }
+
+    /**
+     * Persistently bans a guest account by setting {@code guest.banned = true}.
+     *
+     * <p>Once set, Spring Security's {@link DaoAuthenticationProvider} will call
+     * {@link com.Abdelwahab.RoomBooking.model.Guest#isAccountNonLocked()} on the next
+     * login attempt, receive {@code false}, and throw
+     * {@link org.springframework.security.authentication.LockedException} — preventing
+     * the guest from obtaining any new token regardless of credential validity.
+     *
+     * <p>This is the durable complement to the Redis-based token revocation: the Redis
+     * ban key expires after {@code MAX_TOKEN_LIFESPAN_SECONDS}; this DB flag persists
+     * indefinitely until an admin explicitly lifts it.
+     *
+     * <p>Read-write transactional: the load and the flag-set are atomic.
+     *
+     * @param userId the numeric primary key of the guest to ban
+     * @throws com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException if no
+     *         guest exists with the given ID
+     */
+    @Transactional
+    public void banGuestById(Long userId) {
+        Guest guest = guestRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("Guest not found with ID: " + userId));
+        guest.setBanned(true);
+        guestRepository.save(guest);
     }
 }

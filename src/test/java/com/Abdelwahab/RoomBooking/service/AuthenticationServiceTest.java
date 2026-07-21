@@ -3,6 +3,9 @@ package com.Abdelwahab.RoomBooking.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,20 +24,24 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
+import com.Abdelwahab.RoomBooking.dto.ChangePasswordRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.GuestRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.LoginRequestDTO;
 import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.repository.GuestRepository;
 import com.Abdelwahab.RoomBooking.security.JwtService;
+import com.Abdelwahab.RoomBooking.security.TokenBlacklistService;
 
 /**
  * Plain Mockito unit test for AuthenticationService — no Spring context is loaded
  * (@ExtendWith(MockitoExtension.class); GuestService, GuestRepository, JwtService and
  * the Spring Security AuthenticationManager are @Mock stubs injected into the service).
- * It verifies the registration and login orchestration in isolation: that registration
- * delegates to GuestService and only then mints a token, that login runs credentials
- * through the AuthenticationManager before issuing a token, and that a failed
- * authentication short-circuits before any token is generated.
+ * It verifies the registration, login, logout, password-change, and ban orchestration
+ * in isolation: that registration delegates to GuestService and only then mints a token,
+ * that login runs credentials through the AuthenticationManager before issuing a token,
+ * that logout extracts the JTI and blacklists it (and safely skips bad tokens),
+ * that changePassword delegates to GuestService then revokes all tokens, and that
+ * banUser both revokes tokens and sets the DB banned flag.
  */
 @ExtendWith(MockitoExtension.class)
 public class AuthenticationServiceTest {
@@ -43,6 +50,7 @@ public class AuthenticationServiceTest {
     @Mock private GuestRepository guestRepository;
     @Mock private JwtService jwtService;
     @Mock private AuthenticationManager authenticationManager;
+    @Mock private TokenBlacklistService tokenBlacklistService;
     @InjectMocks private AuthenticationService authenticationService;
 
     private GuestRequestDTO registerRequest;
@@ -137,5 +145,115 @@ public class AuthenticationServiceTest {
 
         verify(guestRepository, never()).findByEmail(any());
         verify(jwtService, never()).generateTokens(any());
+    }
+
+    // ── logout ───────────────────────────────────────────────────
+
+    /**
+     * Given a valid, unexpired token with a positive remaining TTL;
+     * when logout runs; then the JTI is extracted and recorded in the blacklist
+     * with the remaining seconds as TTL and the reason "LOGOUT".
+     */
+    @Test
+    public void logout_blacklistsToken_whenValidAndUnexpired() {
+        when(jwtService.extractJti("valid-token")).thenReturn("user123:nanoABC");
+        when(jwtService.getRemainingExpirationInSeconds("valid-token")).thenReturn(3600L);
+
+        authenticationService.logout("valid-token");
+
+        verify(tokenBlacklistService).blacklist("user123:nanoABC", 3600L, "LOGOUT");
+    }
+
+    /**
+     * Given a token that is already expired (remaining seconds == 0);
+     * when logout runs; then no blacklist entry is written — there is nothing to revoke.
+     */
+    @Test
+    public void logout_skipsBlacklist_whenTokenAlreadyExpired() {
+        when(jwtService.extractJti("expired-token")).thenReturn("user123:nanoXYZ");
+        when(jwtService.getRemainingExpirationInSeconds("expired-token")).thenReturn(0L);
+
+        authenticationService.logout("expired-token");
+
+        verify(tokenBlacklistService, never()).blacklist(anyString(), anyLong(), anyString());
+    }
+
+    /**
+     * Given a null token (no cookie present);
+     * when logout runs; then the method exits silently without touching the blacklist.
+     */
+    @Test
+    public void logout_isNoOp_whenTokenIsNull() {
+        authenticationService.logout(null);
+
+        verify(tokenBlacklistService, never()).blacklist(anyString(), anyLong(), anyString());
+        verify(jwtService, never()).extractJti(any());
+    }
+
+    /**
+     * Given a malformed or unparseable token;
+     * when logout runs; then the exception is swallowed and no blacklist entry is written
+     * — stale cookies on logout must never cause a 500.
+     */
+    @Test
+    public void logout_swallowsParseException_andSkipsBlacklist() {
+        when(jwtService.extractJti("bad-token")).thenThrow(new RuntimeException("parse error"));
+
+        authenticationService.logout("bad-token");
+
+        verify(tokenBlacklistService, never()).blacklist(anyString(), anyLong(), anyString());
+    }
+
+    // ── changePassword ───────────────────────────────────────────
+
+    /**
+     * Given a valid email and correct current password;
+     * when changePassword runs; then GuestService persists the new hash, and
+     * a global user-level ban is written to Redis so all pre-existing tokens are revoked.
+     */
+    @Test
+    public void changePassword_delegatesToGuestService_andRevokesAllTokens() {
+        ChangePasswordRequestDTO req = new ChangePasswordRequestDTO("old", "new-pass-123");
+        when(guestService.changePassword("ada@example.com", req)).thenReturn(42L);
+
+        Long id = authenticationService.changePassword("ada@example.com", req);
+
+        assertThat(id).isEqualTo(42L);
+        // Global ban must be written with the guest's ID and the PASSWORD_CHANGED reason.
+        verify(tokenBlacklistService).banUserGlobally(eq("42"), anyLong(), eq("PASSWORD_CHANGED"));
+    }
+
+    /**
+     * Given GuestService throws BadCredentialsException (wrong current password);
+     * when changePassword runs; then the exception propagates and no Redis ban is written
+     * — no tokens should be revoked if the password was not actually changed.
+     */
+    @Test
+    public void changePassword_propagatesBadCredentials_withoutRevokingTokens() {
+        ChangePasswordRequestDTO req = new ChangePasswordRequestDTO("wrong", "new-pass-123");
+        when(guestService.changePassword("ada@example.com", req))
+                .thenThrow(new BadCredentialsException("Current password is incorrect"));
+
+        assertThatThrownBy(() -> authenticationService.changePassword("ada@example.com", req))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(tokenBlacklistService, never()).banUserGlobally(anyString(), anyLong(), anyString());
+    }
+
+    // ── banUser ────────────────────────────────────────────────
+
+    /**
+     * Given a valid userId and reason;
+     * when banUser runs; then the global Redis ban is written AND GuestService persists
+     * the banned flag — both tiers must fire together to fully close the ban gap.
+     */
+    @Test
+    public void banUser_writesRedisBan_andSetsBannedFlag() {
+        authenticationService.banUser(42L, "ADMIN_BAN");
+
+        // Tier 1: global Redis ban so all existing tokens are immediately rejected.
+        verify(tokenBlacklistService).banUserGlobally(eq("42"), anyLong(), eq("ADMIN_BAN"));
+        // Tier 2: DB flag so new logins are blocked permanently.
+        verify(guestService).banGuestById(42L);
     }
 }

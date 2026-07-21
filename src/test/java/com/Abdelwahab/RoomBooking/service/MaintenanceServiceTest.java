@@ -25,7 +25,7 @@ import com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException;
 import com.Abdelwahab.RoomBooking.model.MaintenanceBlock;
 import com.Abdelwahab.RoomBooking.model.Room;
 import com.Abdelwahab.RoomBooking.model.RoomType;
-import com.Abdelwahab.RoomBooking.repository.MaintanceBlockRepository;
+import com.Abdelwahab.RoomBooking.repository.MaintananceBlockRepository;
 import com.Abdelwahab.RoomBooking.repository.RoomRepository;
 
 /**
@@ -37,7 +37,7 @@ import com.Abdelwahab.RoomBooking.repository.RoomRepository;
 @ExtendWith(MockitoExtension.class)
 public class MaintenanceServiceTest {
 
-    @Mock private MaintanceBlockRepository maintenanceBlockRepository;
+    @Mock private MaintananceBlockRepository maintenanceBlockRepository;
     @Mock private RoomRepository roomRepository;
     @Mock private InventoryService inventoryService;
     @InjectMocks private MaintenanceService maintenanceService;

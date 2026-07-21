@@ -10,7 +10,7 @@ import com.Abdelwahab.RoomBooking.exception.ResourceNotFoundException;
 import com.Abdelwahab.RoomBooking.model.MaintenanceBlock;
 import com.Abdelwahab.RoomBooking.model.Room;
 import com.Abdelwahab.RoomBooking.model.RoomType;
-import com.Abdelwahab.RoomBooking.repository.MaintanceBlockRepository;
+import com.Abdelwahab.RoomBooking.repository.MaintananceBlockRepository;
 import com.Abdelwahab.RoomBooking.repository.RoomRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -39,7 +39,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MaintenanceService {
 
-    private final MaintanceBlockRepository maintenanceBlockRepository;
+    private final MaintananceBlockRepository maintenanceBlockRepository;
     private final RoomRepository roomRepository;
     private final InventoryService inventoryService;
 

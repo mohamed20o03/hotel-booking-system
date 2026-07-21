@@ -9,6 +9,9 @@ import org.junit.jupiter.api.Test;
  * from the persisted {@code role} column, so a promoted admin gains ROLE_ADMIN
  * on the next request with no token change — the JWT filter reloads the entity
  * every time. These tests pin that contract.
+ *
+ * <p>Also verifies the {@code banned} flag contract: a banned guest is treated as
+ * a locked account by Spring Security, blocking new logins permanently.
  */
 public class GuestTest {
 
@@ -39,5 +42,45 @@ public class GuestTest {
         assertThat(guest.getAuthorities())
             .extracting("authority")
             .containsExactly("ROLE_USER");
+    }
+
+    // ── banned flag ───────────────────────────────────────────────
+
+    /**
+     * Given a freshly built guest with no banned flag set;
+     * when {@code isAccountNonLocked()} is called; then it returns {@code true} —
+     * the default state is unlocked so normal guests are not accidentally blocked.
+     */
+    @Test
+    public void isAccountNonLocked_returnsTrueByDefault() {
+        Guest guest = Guest.builder().build();
+
+        assertThat(guest.isAccountNonLocked()).isTrue();
+        assertThat(guest.isBanned()).isFalse();
+    }
+
+    /**
+     * Given a guest whose {@code banned} field is {@code true};
+     * when {@code isAccountNonLocked()} is called; then it returns {@code false} —
+     * Spring Security's {@code DaoAuthenticationProvider} will throw
+     * {@code LockedException} on the next login attempt, preventing new token issuance.
+     */
+    @Test
+    public void isAccountNonLocked_returnsFalse_whenBanned() {
+        Guest banned = Guest.builder().banned(true).build();
+
+        assertThat(banned.isAccountNonLocked()).isFalse();
+    }
+
+    /**
+     * Given a guest whose {@code banned} field is explicitly {@code false};
+     * when {@code isAccountNonLocked()} is called; then it returns {@code true} —
+     * an explicitly unlocked guest can authenticate normally.
+     */
+    @Test
+    public void isAccountNonLocked_returnsTrue_whenNotBanned() {
+        Guest guest = Guest.builder().banned(false).build();
+
+        assertThat(guest.isAccountNonLocked()).isTrue();
     }
 }

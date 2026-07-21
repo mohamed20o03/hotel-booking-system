@@ -20,8 +20,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import com.Abdelwahab.RoomBooking.dto.ChangePasswordRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.GuestRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.GuestResponseDTO;
 import com.Abdelwahab.RoomBooking.exception.DuplicateResourceException;
@@ -33,10 +35,8 @@ import com.Abdelwahab.RoomBooking.repository.GuestRepository;
  * Plain Mockito unit test for GuestService — no Spring context is loaded
  * (@ExtendWith(MockitoExtension.class); the GuestRepository and PasswordEncoder
  * collaborators are @Mock stubs injected into the service under test). It exercises
- * the guest-registration and lookup logic in isolation from persistence and HTTP:
- * that passwords are hashed before they are stored, that self-registration is pinned
- * to ROLE_USER and the STANDARD loyalty tier, that a duplicate email is rejected, and
- * that a lookup miss raises ResourceNotFoundException.
+ * the guest-registration, lookup, password-change, and ban logic in isolation from
+ * persistence and HTTP.
  */
 @ExtendWith(MockitoExtension.class)
 public class GuestServiceTest {
@@ -153,7 +153,99 @@ public class GuestServiceTest {
         assertThatThrownBy(() -> guestService.getGuestById(guestId))
             .isInstanceOf(ResourceNotFoundException.class)
             .hasMessageContaining("Guest not found with ID: " + guestId);
-
     }
-    
+
+    // ── changePassword ────────────────────────────────────────────
+
+    /**
+     * Given the correct current password and a new password;
+     * when changePassword runs; then the new BCrypt hash is saved and the guest's
+     * numeric ID is returned for the caller to trigger token revocation.
+     */
+    @Test
+    public void changePassword_encodesNewPassword_andReturnsGuestId() {
+        ChangePasswordRequestDTO req = new ChangePasswordRequestDTO("old-pass", "new-pass-123");
+        when(guestRepository.findByEmail("ada@example.com")).thenReturn(Optional.of(savedGuest));
+        when(passwordEncoder.matches("old-pass", "hash_password")).thenReturn(true);
+        when(passwordEncoder.encode("new-pass-123")).thenReturn("new-hash");
+        when(guestRepository.save(any(Guest.class))).thenReturn(savedGuest);
+
+        Long returnedId = guestService.changePassword("ada@example.com", req);
+
+        assertThat(returnedId).isEqualTo(42L);
+        ArgumentCaptor<Guest> captor = ArgumentCaptor.forClass(Guest.class);
+        verify(guestRepository).save(captor.capture());
+        // New hash must be stored, never the plain-text new password.
+        assertThat(captor.getValue().getPassword()).isEqualTo("new-hash");
+    }
+
+    /**
+     * Given an incorrect current password;
+     * when changePassword runs; then BadCredentialsException is thrown and
+     * no save is attempted — a stolen cookie alone cannot change credentials.
+     */
+    @Test
+    public void changePassword_throwsBadCredentials_whenCurrentPasswordWrong() {
+        ChangePasswordRequestDTO req = new ChangePasswordRequestDTO("wrong-pass", "new-pass-123");
+        when(guestRepository.findByEmail("ada@example.com")).thenReturn(Optional.of(savedGuest));
+        when(passwordEncoder.matches("wrong-pass", "hash_password")).thenReturn(false);
+
+        assertThatThrownBy(() -> guestService.changePassword("ada@example.com", req))
+            .isInstanceOf(BadCredentialsException.class)
+            .hasMessageContaining("Current password is incorrect");
+
+        verify(guestRepository, never()).save(any());
+    }
+
+    /**
+     * Given an email that has no matching guest;
+     * when changePassword runs; then ResourceNotFoundException is raised
+     * and no save is attempted.
+     */
+    @Test
+    public void changePassword_throwsNotFound_whenGuestMissing() {
+        ChangePasswordRequestDTO req = new ChangePasswordRequestDTO("any", "new-pass-123");
+        when(guestRepository.findByEmail("unknown@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> guestService.changePassword("unknown@example.com", req))
+            .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(guestRepository, never()).save(any());
+    }
+
+    // ── banGuestById ─────────────────────────────────────────────
+
+    /**
+     * Given an existing guest;
+     * when banGuestById runs; then {@code guest.banned} is set to {@code true} and
+     * the entity is saved — subsequent logins will be rejected by
+     * {@code isAccountNonLocked()}.
+     */
+    @Test
+    public void banGuestById_setsBannedTrue_andSaves() {
+        when(guestRepository.findById(42L)).thenReturn(Optional.of(savedGuest));
+        when(guestRepository.save(any(Guest.class))).thenReturn(savedGuest);
+
+        guestService.banGuestById(42L);
+
+        ArgumentCaptor<Guest> captor = ArgumentCaptor.forClass(Guest.class);
+        verify(guestRepository).save(captor.capture());
+        assertThat(captor.getValue().isBanned()).isTrue();
+    }
+
+    /**
+     * Given a userId that matches no guest;
+     * when banGuestById runs; then ResourceNotFoundException is thrown
+     * and no save is attempted.
+     */
+    @Test
+    public void banGuestById_throwsNotFound_whenGuestMissing() {
+        when(guestRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> guestService.banGuestById(99L))
+            .isInstanceOf(ResourceNotFoundException.class)
+            .hasMessageContaining("Guest not found with ID: 99");
+
+        verify(guestRepository, never()).save(any());
+    }
 }

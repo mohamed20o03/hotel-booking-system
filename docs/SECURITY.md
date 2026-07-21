@@ -28,7 +28,7 @@ or the other.
 | What enforces access? | Three layers: URL rules → `@PreAuthorize` → service-layer ownership | [§6](#6-authorization-roles-and-ownership) |
 | How are passwords stored? | BCrypt (adaptive, salted) — hash only | [§7](#7-password-handling) |
 | Is the session stateful? | No — `STATELESS`; the token is the whole session | [§6](#6-authorization-roles-and-ownership) |
-| Can I log someone out server-side? | **No** — logout only clears the cookie client-side | [§5](#5-the-cookie-attribute-by-attribute), [§9](#9-known-gaps-and-how-to-close-them) |
+| Can I log someone out server-side? | **Yes** — global ban via Redis invalidates all tokens instantly | [§3](#3-registration-and-login), [§8](#8-threat-model) |
 
 ---
 
@@ -63,13 +63,15 @@ Sections are grouped into four parts. Section numbers are stable — the body cr
 | Component | File | Responsibility |
 |---|---|---|
 | `SecurityConfig` | `security/SecurityConfig.java` | Builds the `SecurityFilterChain`; declares URL-level rules; inserts the JWT filter; disables CSRF; sets stateless sessions |
-| `JwtAuthenticationFilter` | `security/JwtAuthenticationFilter.java` | Once per request: reads cookie → validates token → loads `Guest` → populates `SecurityContext` |
-| `JwtService` | `security/JwtService.java` | Signs, parses, and validates tokens; owns the HMAC key |
+| `JwtAuthenticationFilter` | `security/JwtAuthenticationFilter.java` | Once per request: reads cookie → validates token → checks blacklist → loads `Guest` → populates `SecurityContext` |
+| `JwtService` | `security/JwtService.java` | Signs, parses, and validates tokens; owns the HMAC key; generates compound `jti` |
+| `TokenBlacklistService` | `security/TokenBlacklistService.java` | Redis-backed revocation store; supports token-level and user-level (global) bans |
 | `ApplicationConfig` | `security/ApplicationConfig.java` | Beans: `UserDetailsService`, `AuthenticationProvider`, `PasswordEncoder`, `AuthenticationManager` |
-| `AuthenticationService` | `service/AuthenticationService.java` | Orchestrates register/login; asks `JwtService` for a token |
-| `AuthController` | `controller/AuthController.java` | `/api/auth/*` endpoints; builds and clears the `Set-Cookie` header |
+| `AuthenticationService` | `service/AuthenticationService.java` | Orchestrates register/login/global-revocation; delegates to `JwtService` and `TokenBlacklistService` |
+| `GuestService` | `service/GuestService.java` | Guest account management including password change with BCrypt re-verification |
+| `AuthController` | `controller/AuthController.java` | `/api/auth/*` endpoints: register, login, logout, admin ban, and self-service password change |
 | `Guest` | `model/Guest.java` | Implements `UserDetails`; its `role` column is the sole authority source |
-| `GlobalExceptionHandler` | `exception/GlobalExceptionHandler.java` | Maps `AuthenticationException` → 401, `AccessDeniedException` → 403 |
+| `GlobalExceptionHandler` | `exception/GlobalExceptionHandler.java` | Maps `AuthenticationException` → 401, `AccessDeniedException` → 403, `BadCredentialsException` → 401 |
 | `RestAuthenticationEntryPoint` | `security/RestAuthenticationEntryPoint.java` | Answers unauthenticated access to a protected route with 401 |
 
 How they connect at runtime:
@@ -182,10 +184,10 @@ the token and the resolved principal can never disagree.
 
 # Part II · The authentication flow
 
-## 3. Registration and login
+## 3. Registration, login, and credential flows
 
-Both endpoints end the same way: a signed token delivered in a cookie, never in the
-response body.
+All token-issuing endpoints end the same way: a signed token delivered in a cookie,
+never in the response body. Revocation endpoints clear the cookie and write to Redis.
 
 ```
 POST /api/auth/register                 POST /api/auth/login
@@ -221,6 +223,58 @@ Key points, each grounded in the code:
   and no token is minted.
 - **Both re-fetch the `Guest` after authenticating** to hand a full entity to
   `generateTokens`. (Only the email actually ends up in the token.)
+
+### Admin ban — `POST /api/auth/admin/ban/{userId}`
+
+Restricted to `ROLE_ADMIN` at both the URL-matcher and `@PreAuthorize` levels.
+Writes a single Redis key `blacklist:user:<userId>` with a TTL equal to the maximum
+JWT lifespan (24 h). Every subsequent request bearing a token whose compound `jti`
+starts with that user ID is rejected by `JwtAuthenticationFilter` before it reaches
+any controller — across every device, with a single Redis write.
+
+```
+POST /api/auth/admin/ban/{userId}   body: { userId, reason }
+        │
+        ▼  @PreAuthorize("hasRole('ADMIN')")
+AuthenticationService.logoutFromAllDevices(userId, reason)
+        │
+        ▼
+TokenBlacklistService.banUserGlobally(userId, 86400, reason)
+  → Redis SET blacklist:user:<userId> <reason> EX 86400
+        │
+        ▼
+200 OK  "User <id> has been banned. Reason: <reason>"
+```
+
+### Guest password change — `PATCH /api/auth/me/password`
+
+Available to any authenticated guest. Two-step security ensures a stolen cookie alone
+cannot silently take over an account:
+
+1. **Re-authentication.** `GuestService.changePassword` verifies `currentPassword`
+   against the stored BCrypt hash. A mismatch throws `BadCredentialsException` (→ 401)
+   before any write.
+2. **Global revocation.** On success, `AuthenticationService.logoutFromAllDevices`
+   bans all pre-existing tokens (`PASSWORD_CHANGED`), and the current device's cookie
+   is cleared. Every other logged-in device is immediately forced to re-authenticate.
+
+```
+PATCH /api/auth/me/password   body: { currentPassword, newPassword }
+        │
+        ▼  (authenticated via cookie)
+GuestService.changePassword(email, request)
+  • BCrypt.matches(currentPassword, storedHash) — throws 401 on mismatch
+  • guest.setPassword(BCrypt.encode(newPassword))
+  • guestRepository.save(guest)  → returns guestId
+        │
+        ▼
+AuthenticationService.logoutFromAllDevices(guestId, "PASSWORD_CHANGED")
+  → Redis SET blacklist:user:<guestId> PASSWORD_CHANGED EX 86400
+        │
+        ▼
+Set-Cookie: jwt=""; Max-Age=0   (clears current device's cookie)
+204 No Content
+```
 
 ### The `UserDetailsService` bridge
 
@@ -330,9 +384,9 @@ ResponseCookie.from("jwt", token)
 | `Max-Age` | `86400` | Cookie self-deletes after 1 day, matching `exp`. | Limits the window a leaked cookie is useful; keeps cookie and token lifetimes in sync. |
 
 **Logout** (`buildClearCookie`) re-sends the same name/path with `maxAge(0)` and an
-empty value, which the browser interprets as "delete." No server-side token
-blacklist exists — logout is purely "make the browser forget the cookie." A copy of
-the token captured before logout would still validate until `exp` (§9).
+empty value, which the browser interprets as "delete." The server-side blacklist step
+(recording the token's `jti` in Redis) runs first, so a copy of the token captured
+before logout is also rejected server-side on its next use.
 
 ---
 
@@ -374,7 +428,12 @@ up — keep that convention if you add roles.
 ### Layer 1 — URL rules (`SecurityConfig`)
 
 ```java
-.requestMatchers("/api/auth/**").permitAll()
+// Public: registration, login, and logout only.
+.requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
+// Admin ban — requires ROLE_ADMIN (also guarded by @PreAuthorize).
+.requestMatchers("/api/auth/admin/**").hasRole("ADMIN")
+// Password change — requires any authenticated session.
+.requestMatchers("/api/auth/me/**").authenticated()
 .requestMatchers(HttpMethod.GET, "/api/hotels/**").permitAll()
 .requestMatchers(HttpMethod.POST,   "/api/hotels/**").hasRole("ADMIN")
 .requestMatchers(HttpMethod.PUT,    "/api/hotels/**").hasRole("ADMIN")
@@ -405,10 +464,11 @@ controller methods carry:
 @PreAuthorize("hasRole('ADMIN')")
 ```
 
-on maintenance create/remove, hotel/room-type/add-on writes, and reservation
-check-in. This **repeats** the URL-level guard on purpose: if someone later
-refactors the URL matchers and drops a rule, the method annotation still refuses
-non-admins. Defense in depth — two independent gates, either alone sufficient.
+on maintenance create/remove, hotel/room-type/add-on writes, reservation check-in,
+**and the new admin ban endpoint** (`POST /api/auth/admin/ban/{userId}`). This
+**repeats** the URL-level guard on purpose: if someone later refactors the URL
+matchers and drops a rule, the method annotation still refuses non-admins.
+Defense in depth — two independent gates, either alone sufficient.
 
 ### Layer 3 — ownership (service layer)
 
@@ -473,6 +533,10 @@ What the current design stops, and how:
 | **IDOR (acting on others' bookings)** | Ownership checks | Email-vs-owner comparison in services (§6). |
 | **Brute-forcing stored passwords** | BCrypt | Adaptive, salted, slow (§7). |
 | **Stale privileges after demotion** | DB reload per request | Authorities reflect the current row, not the token (§6). |
+| **Multi-device session after ban** | Global user-level revocation | Admin ban writes `blacklist:user:<id>` in Redis; filter rejects all existing tokens for that user (§3). |
+| **New login after ban** | `Guest.banned` DB flag | `isAccountNonLocked()` returns `false`; `DaoAuthenticationProvider` throws `LockedException` (→ 401) before password check (§6). |
+| **Cookie-only password takeover** | BCrypt re-verification on change | `changePassword` verifies current password before writing; stolen cookie alone cannot update credentials (§3). |
+| **Stale sessions after password change** | Global revocation on password change | All pre-existing tokens are banned (`PASSWORD_CHANGED`) and the current device's cookie is cleared (§3). |
 
 The interlock worth internalizing: **cookie transport trades the XSS surface for a
 CSRF surface, and `SameSite=Strict` pays off that CSRF debt.** Disabling Spring's
@@ -489,24 +553,18 @@ Honest list — none are hidden, and several are the project's natural next step
 1. **Seeded admin credential in the repo.** `data.sql` carries a BCrypt hash of
    `admin123`. **Fix:** seed only in a dev profile, or create the admin out-of-band.
 
-2. **No token revocation / logout is client-side only.** Logout just deletes the
-   cookie; a token captured beforehand stays valid until `exp` (up to 24h). There is
-   no blacklist and no refresh-token rotation. **Fix (if needed):** short-lived
-   access token + server-side refresh token with a revocation list, or a
-   per-user token version claim checked against the DB.
-
-3. **`Secure=true` in local dev.** The cookie only flies over HTTPS, so plain-HTTP
+2. **`Secure=true` in local dev.** The cookie only flies over HTTPS, so plain-HTTP
    local testing won't receive it. **Fix:** profile-conditional `secure` flag.
 
-4. **HTTP-layer test coverage is partial.** `MaintenanceControllerTest` is the
+3. **HTTP-layer test coverage is partial.** `MaintenanceControllerTest` is the
    reference proving RBAC/validation/error-mapping over the wire, but most
    controllers are still only covered at the service level. **Fix:** extend the
-   reference pattern to the other role-gated and validation-heavy endpoints.
+   reference pattern to the other role-gated and validation-heavy endpoints,
+   including the new ban and password-change endpoints.
 
-5. **`login()` uses a bare `.orElseThrow()`** with no message when re-fetching the
+4. **`login()` uses a bare `.orElseThrow()`** with no message when re-fetching the
    guest. Harmless (auth already succeeded) but yields an opaque 500 if it ever
    fires. **Fix:** throw a descriptive exception.
-
 ---
 
 ## 10. Change-this-here reference
@@ -523,9 +581,10 @@ Honest list — none are hidden, and several are the project's natural next step
 | Add a new role | set it on `Guest.role`; guard with `hasRole('NAME')` (no `ROLE_` prefix in the check) |
 | Response status for access-denied | `GlobalExceptionHandler` (`AccessDeniedException` → 403) |
 | Response status for unauthenticated | `RestAuthenticationEntryPoint` (→ 401) |
+| Ban TTL (how long the global ban key lives) | `MAX_TOKEN_LIFESPAN_SECONDS` in `AuthenticationService` |
+| Minimum password length on change | `@Size(min = …)` on `ChangePasswordRequestDTO.newPassword` |
+| Redis host/port for token blacklist | `spring.data.redis.*` in `application-dev.yaml` / `application-prod.yaml` |
+| Lift a ban (re-enable a guest) | Set `guest.banned = false` directly in the DB (no endpoint yet) |
 
 ---
 
-*This document reflects the code as committed. If you change the filter, the cookie
-builder, or the authorization rules, update the matching section — the value here is
-that it describes what the code actually does, not what it ought to.*

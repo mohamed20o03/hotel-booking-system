@@ -101,6 +101,24 @@ public class Guest implements UserDetails {
     @Builder.Default
     private String role = "ROLE_USER";
 
+    /**
+     * When {@code true}, this account is administratively banned.
+     *
+     * <p>Spring Security checks {@link #isAccountNonLocked()} on every login attempt.
+     * Setting this flag to {@code true} causes the {@link DaoAuthenticationProvider} to
+     * throw {@link org.springframework.security.authentication.LockedException} before
+     * a password is even checked, preventing the guest from obtaining a new token
+     * regardless of whether their credentials are valid.
+     *
+     * <p>This complements the Redis-based token revocation in
+     * {@link com.Abdelwahab.RoomBooking.security.TokenBlacklistService}: the Redis ban
+     * invalidates all <em>existing</em> tokens immediately; this flag blocks <em>new</em>
+     * logins permanently until an admin clears it.
+     */
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean banned = false;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -121,7 +139,10 @@ public class Guest implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return true;
+        // A banned guest is treated as a locked account by Spring Security.
+        // DaoAuthenticationProvider throws LockedException (→ 401) before any
+        // password comparison, so a banned user cannot obtain a new token.
+        return !banned;
     }
 
     @Override

@@ -1,58 +1,77 @@
 package com.Abdelwahab.RoomBooking.controller;
 
+import java.util.Arrays;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.Abdelwahab.RoomBooking.dto.BanUserRequestDTO;
+import com.Abdelwahab.RoomBooking.dto.ChangePasswordRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.GuestRequestDTO;
 import com.Abdelwahab.RoomBooking.dto.LoginRequestDTO;
+import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.service.AuthenticationService;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HTTP entry point for authentication: guest registration, login, and logout.
  *
- * <p><strong>Architectural role.</strong> A thin web-contract adapter. It binds and
- * validates credentials, delegates to {@link AuthenticationService}, and translates
- * the issued JWT into an authentication cookie on the response. It holds no business
- * logic beyond cookie assembly: persistence, password hashing, credential checks, and
- * token minting all live in the service layer.
+ * <h2>Architectural Role</h2>
+ * <p>A thin web-contract adapter. It binds and validates credentials, delegates all
+ * business logic to {@link AuthenticationService}, and translates the issued JWT into
+ * an authentication cookie on the response. Cookie assembly is the only non-delegated
+ * concern here. Persistence, password hashing, credential verification, token minting,
+ * and token revocation all live in the service/security layers.
  *
- * <p><strong>Cookie contract.</strong> The JWT is never placed in the response body.
- * On successful register/login the controller sets a {@code Set-Cookie} header for a
- * cookie named {@code "jwt"} that is {@code HttpOnly} (unreadable by JavaScript,
- * neutralising token theft via XSS), {@code Secure} (sent only over HTTPS),
- * {@code Path=/} (sent with every API request), {@code Max-Age=86400} (one day, to
- * match the configured token expiry), and {@code SameSite=Strict} (never sent on
- * cross-site requests, blocking CSRF). Logout overwrites that cookie with an empty,
- * {@code Max-Age=0} cookie of the same name and path so the browser discards it; no
- * server-side token blacklist is kept.
+ * <h2>Cookie Contract</h2>
+ * <p>The JWT is <em>never</em> placed in the response body. On successful register/login
+ * the controller sets a {@code Set-Cookie} header for a cookie named {@code "jwt"} with:
+ * <ul>
+ *   <li>{@code HttpOnly} — unreadable by JavaScript, neutralising XSS token theft</li>
+ *   <li>{@code Secure} — sent only over HTTPS, blocking MITM interception</li>
+ *   <li>{@code SameSite=Strict} — never sent on cross-site requests, blocking CSRF</li>
+ *   <li>{@code Path=/} — present on every API request</li>
+ *   <li>{@code Max-Age=86400} — one day, aligned with the JWT {@code exp} claim</li>
+ * </ul>
+ * Logout clears the cookie ({@code Max-Age=0}) and simultaneously records the token's
+ * {@code jti} in the Redis blacklist so that any copy of the token already captured by
+ * an attacker is instantly invalidated server-side.
  *
- * <p><strong>Thread safety.</strong> Stateless and therefore thread-safe. Its only
- * field is the injected singleton {@link AuthenticationService}; each request runs on
- * its own thread with request-scoped arguments.
+ * <h2>Thread Safety</h2>
+ * <p>Stateless Spring singleton. Every field is an injected collaborator; each request
+ * runs in isolation on its own thread with no shared mutable state.
  *
- * <p><strong>Security &amp; scope.</strong> All three endpoints are <strong>public</strong>,
- * matched by the {@code /api/auth/**} {@code permitAll} rule in {@code SecurityConfig}
- * — a caller must be able to reach them before holding a token.
+ * <h2>Security &amp; Scope</h2>
+ * <p>All three endpoints are <strong>public</strong>, matched by the
+ * {@code /api/auth/**} {@code permitAll} rule in {@code SecurityConfig} — a caller
+ * must reach them before holding a valid token.
  *
- * <p><strong>Error contract.</strong> Domain exceptions are mapped centrally by
- * {@code GlobalExceptionHandler}: a duplicate email on registration raises
- * {@code DuplicateResourceException → 409}, and bean-validation failures on
- * {@code @Valid → 400}. Bad login credentials raise an {@code AuthenticationException},
- * which is mapped to {@code 401 Unauthorized} with a generic message.
+ * <h2>Error Contract</h2>
+ * <p>Domain exceptions are mapped centrally by {@code GlobalExceptionHandler}:
+ * duplicate email → {@code 409}, bean-validation failure → {@code 400}, bad
+ * credentials → {@code 401}.
  *
  * @see AuthenticationService
+ * @see com.Abdelwahab.RoomBooking.security.TokenBlacklistService
  * @see com.Abdelwahab.RoomBooking.exception.GlobalExceptionHandler
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -62,20 +81,15 @@ public class AuthController {
 
     /**
      * Registers a new guest, mints a JWT, and delivers it in the {@code "jwt"}
-     * authentication cookie (see the class-level cookie contract). The token is never
-     * returned in the body.
+     * authentication cookie. The token is never returned in the body.
      *
      * <p>Public. Self-registration always creates a standard guest, never an admin.
-     * The request body is validated with {@code @Valid} before the service is reached.
      *
-     * @param request  the new guest's details — name, email, password, and profile
-     *                fields; validated by DTO constraints.
-     * @param response the servlet response the {@code Set-Cookie} header is written to.
-     * @return {@code 201 Created} with no body; the JWT is delivered via the cookie.
+     * @param request  the new guest's profile and credentials; validated by DTO constraints
+     * @param response the servlet response the {@code Set-Cookie} header is written to
+     * @return {@code 201 Created} with no body
      * @throws com.Abdelwahab.RoomBooking.exception.DuplicateResourceException if the
-     *         email is already registered (mapped to {@code 409}).
-     * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
-     *         fails bean validation (mapped to {@code 400}).
+     *         email is already registered ({@code 409})
      */
     @PostMapping("/register")
     public ResponseEntity<Void> register(
@@ -83,27 +97,22 @@ public class AuthController {
             HttpServletResponse response) {
 
         String token = authenticationService.register(request);
-
         response.addHeader(HttpHeaders.SET_COOKIE, buildJwtCookie(token).toString());
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
     /**
-     * Authenticates a guest's credentials via Spring Security, mints a JWT, and
-     * delivers it in the {@code "jwt"} authentication cookie (see the class-level
-     * cookie contract). The token is never returned in the body.
+     * Authenticates a guest's credentials and delivers a fresh JWT in the
+     * {@code "jwt"} cookie. The token is never returned in the body.
      *
-     * <p>Public. The request body is validated with {@code @Valid} before the service
-     * is reached.
+     * <p>Public. The request body is validated with {@code @Valid} before the
+     * service is reached.
      *
-     * @param request  the login credentials — email and password; validated by DTO
-     *                constraints.
-     * @param response the servlet response the {@code Set-Cookie} header is written to.
-     * @return {@code 200 OK} with no body; the JWT is delivered via the cookie.
-     * @throws org.springframework.security.core.AuthenticationException if the
-     *         credentials are invalid (mapped to {@code 401}).
-     * @throws org.springframework.web.bind.MethodArgumentNotValidException if the body
-     *         fails bean validation (mapped to {@code 400}).
+     * @param request  the login credentials — email and password
+     * @param response the servlet response the {@code Set-Cookie} header is written to
+     * @return {@code 200 OK} with no body
+     * @throws org.springframework.security.core.AuthenticationException if credentials
+     *         are invalid ({@code 401})
      */
     @PostMapping("/login")
     public ResponseEntity<Void> login(
@@ -111,46 +120,110 @@ public class AuthController {
             HttpServletResponse response) {
 
         String token = authenticationService.login(request);
-
         response.addHeader(HttpHeaders.SET_COOKIE, buildJwtCookie(token).toString());
         return ResponseEntity.ok().build();
     }
 
     /**
-     * Logs the guest out by overwriting the {@code "jwt"} cookie with an empty,
-     * immediately expired ({@code Max-Age=0}) cookie so the browser discards it. No
-     * server-side token blacklist is needed.
+     * Logs the guest out with a two-pronged invalidation strategy:
+     *
+     * <ol>
+     *   <li><strong>Server-side revocation.</strong> The token's {@code jti} is
+     *       extracted and recorded in the Redis blacklist, so any copy captured before
+     *       logout is rejected on its next use. Delegated to
+     *       {@link AuthenticationService#logout}.</li>
+     *   <li><strong>Client-side cookie clearance.</strong> A {@code Set-Cookie} header
+     *       with {@code Max-Age=0} instructs the browser to delete the cookie
+     *       immediately.</li>
+     * </ol>
      *
      * <p>Public; safe to call whether or not a valid session exists.
      *
-     * @param response the servlet response the clearing {@code Set-Cookie} header is
-     *                written to.
-     * @return {@code 204 No Content}.
+     * @param request  the incoming HTTP request, used to read the existing {@code jwt} cookie
+     * @param response the servlet response the clearing {@code Set-Cookie} header is written to
+     * @return {@code 204 No Content}
      */
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(HttpServletResponse response) {
+    public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+        String token = Arrays.stream(request.getCookies() != null ? request.getCookies() : new Cookie[0])
+            .filter(c -> "jwt".equals(c.getName()))
+            .map(Cookie::getValue)
+            .findFirst()
+            .orElse(null);
+
+        authenticationService.logout(token);
         response.addHeader(HttpHeaders.SET_COOKIE, buildClearCookie().toString());
         return ResponseEntity.noContent().build();
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // Private cookie builders
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Bans a guest globally, immediately revoking every active token across all devices.
+     *
+     * <p>Restricted to {@code ROLE_ADMIN} at both the URL-matcher and {@code @PreAuthorize}
+     * levels. Delegates all business logic (Redis write + audit log) to
+     * {@link AuthenticationService#banUser}.
+     *
+     * @param userId  the numeric guest ID to ban; taken from the path variable
+     * @param request the ban reason; must not be blank
+     * @return {@code 200 OK} with a confirmation message
+     */
+    @PostMapping("/admin/ban/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<String> banUser(
+            @PathVariable Long userId,
+            @Valid @RequestBody BanUserRequestDTO request) {
+
+        authenticationService.banUser(userId, request.reason());
+        return ResponseEntity.ok("User " + userId + " has been banned. Reason: " + request.reason());
+    }
+
+    /**
+     * Allows an authenticated guest to change their own password.
+     *
+     * <p>Delegates all business logic (BCrypt re-verification, password write, global
+     * token revocation, and audit log) to {@link AuthenticationService#changePassword}.
+     * The controller's only additional responsibility is clearing the current device's
+     * cookie via a {@code Set-Cookie: Max-Age=0} header.
+     *
+     * @param guest    the authenticated caller, injected via {@code @AuthenticationPrincipal}
+     * @param request  current and new passwords
+     * @param response the servlet response; the clearing {@code Set-Cookie} header is written here
+     * @return {@code 204 No Content}
+     */
+    @PatchMapping("/me/password")
+    public ResponseEntity<Void> changePassword(
+            @AuthenticationPrincipal Guest guest,
+            @Valid @RequestBody ChangePasswordRequestDTO request,
+            HttpServletResponse response) {
+
+        authenticationService.changePassword(guest.getEmail(), request);
+        response.addHeader(HttpHeaders.SET_COOKIE, buildClearCookie().toString());
+        return ResponseEntity.noContent().build();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Private cookie builders
+    // ─────────────────────────────────────────────────────────────
+
     /**
      * Builds a secure, production-ready JWT cookie.
      *
-     * Every attribute here serves a specific security purpose:
-     *   - HttpOnly:       JavaScript CANNOT read this cookie. Even if an attacker injects
-     *                     malicious JS into the page (XSS), they cannot steal the token.
-     *   - Secure:         The browser ONLY sends this cookie over HTTPS. Prevents token
-     *                     interception on plain HTTP connections (man-in-the-middle attacks).
-     *   - Path("/"):      The cookie is sent with every request to the API, not just one path.
-     *   - MaxAge(86400):  The cookie lives for exactly 1 day (86400 seconds), matching the
-     *                     JWT expiry configured in application.yaml.
-     *   - SameSite=Strict: The browser NEVER sends this cookie if the request originated from
-     *                     a different website. This completely blocks CSRF attacks — a malicious
-     *                     site cannot trigger an authenticated action on behalf of the user.
+     * <p>Every attribute serves a specific security purpose:
+     * <ul>
+     *   <li>{@code HttpOnly} — JavaScript cannot read this cookie (XSS cannot steal the token)</li>
+     *   <li>{@code Secure} — sent only over HTTPS (blocks MITM on plaintext HTTP)</li>
+     *   <li>{@code SameSite=Strict} — never sent on cross-site requests (blocks CSRF)</li>
+     *   <li>{@code Path=/} — sent with every API request</li>
+     *   <li>{@code Max-Age=86400} — one day, aligned with the configured JWT {@code exp}</li>
+     * </ul>
      */
     private ResponseCookie buildJwtCookie(String token) {
         return ResponseCookie.from("jwt", token)
-            .httpOnly(true) // Browser automatically hides this cookie from all JS scripts — completely neutralizing XSS attacks
+            .httpOnly(true)
             .secure(true)
             .path("/")
             .maxAge(86400)
@@ -161,9 +234,8 @@ public class AuthController {
     /**
      * Builds a cookie that immediately clears the JWT from the browser.
      *
-     * By setting Max-Age=0 with the same name and path, the browser interprets this
-     * as an instruction to delete the existing cookie. The value is set to empty string
-     * as the browser will discard it anyway.
+     * <p>{@code Max-Age=0} with the same name and path instructs the browser to
+     * delete the existing cookie. The empty value is discarded by the browser.
      */
     private ResponseCookie buildClearCookie() {
         return ResponseCookie.from("jwt", "")

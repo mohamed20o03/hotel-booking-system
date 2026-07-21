@@ -46,7 +46,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
      *       {@link com.Abdelwahab.RoomBooking.model.MaintenanceBlock} overlapping the
      *       stay, using the same half-open test {@code mb.startDate < newCheckOut AND
      *       mb.endDate > newCheckIn}. This mirrors
-     *       {@link MaintanceBlockRepository#existsOverlappingBlock} so boundary-touching
+     *       {@link MaintananceBlockRepository#existsOverlappingBlock} so boundary-touching
      *       ranges are treated consistently.</li>
      * </ul>
      * A room survives only if it clears <em>both</em> exclusions. The half-open
