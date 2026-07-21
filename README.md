@@ -1,4 +1,4 @@
-# Room Booking API
+# Hotel Booking System
 
 A hotel booking and room-management engine built with Spring Boot. It sells nights
 of a *room type* against a per-night inventory allotment, takes payment to confirm a
@@ -68,7 +68,7 @@ The server starts on `http://localhost:8080`. The schema and seed data
 JPA runs in `ddl-auto: validate` mode against that schema.
 
 ### Supporting tools
-- **H2 console** — `http://localhost:8080/h2-console` (JDBC URL `jdbc:h2:mem:roombookingdb`, user `sa`, empty password).
+- **H2 console** — `http://localhost:8080/h2-console` (JDBC URL `jdbc:h2:mem:hotelbookingdb`, user `sa`, empty password).
 
 > **HTTPS note.** The auth cookie is always issued with the `Secure` flag, so a
 > browser will not send it over plain `http://localhost`. Use an HTTPS context (or a
@@ -130,8 +130,7 @@ src/main/java/com/Abdelwahab/RoomBooking/
 ## Known limitations
 
 Tracked honestly in the [technical-debt ledger](docs/ARCHITECTURE.md#6-known-technical-debt--next-steps).
-Highlights: JWTs are not server-side revocable (logout is client-side only),
-there is no CORS configuration yet, and the JWT signing
-secret lives in `application.yaml` (should be externalized per environment).
+Highlights: JWTs are not server-side revocable (logout is client-side only)
+and there is no CORS configuration yet.
 Interactive API docs (SpringDoc/OpenAPI) are deferred pending Spring Boot 4 / Spring 7
 compatibility; until then, [docs/API.md](docs/API.md) is the endpoint reference.

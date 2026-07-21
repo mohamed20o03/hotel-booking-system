@@ -193,8 +193,6 @@ An honest ledger of current trade-offs. Security-specific gaps are expanded in
 - **No CORS configuration.** Fine for same-origin/non-browser clients; a
   cross-origin SPA cannot send the credentialed cookie until a proper CORS bean
   exists (explicit origins + `allowCredentials(true)`, never `*` with credentials).
-- **Dev secrets in config.** The JWT signing key lives in `application.yaml`.
-  *Next:* externalize to an environment variable / secrets manager per environment.
 - **`Secure` cookie on local HTTP.** The cookie is always `Secure`, so it won't be
   sent over plain `http://localhost`; local testing needs HTTPS or a profile
   override.

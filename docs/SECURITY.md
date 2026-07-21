@@ -2,7 +2,7 @@
 
 > **Audience:** engineers working on authentication, authorization, or anything that
 > touches the security filter chain.
-> **Scope:** a complete, code-level account of how auth works in RoomBooking — the
+> **Scope:** a complete, code-level account of how auth works in Hotel Booking System — the
 > mechanisms, the exact code paths, the threats each choice addresses, and the places
 > where the design has sharp edges.
 > **Companion docs:** [ARCHITECTURE.md](ARCHITECTURE.md) (system overview) ·
@@ -486,37 +486,24 @@ protection or you reopen the hole.
 
 Honest list — none are hidden, and several are the project's natural next steps.
 
-1. **Secret is committed in plaintext.** `spring.application.security.jwt.secret-key`
-   sits in `application.yaml`. Anyone with the repo can mint valid admin tokens
-   (HS256 is symmetric). **Fix:** externalize to an env var —
-   `secret-key: ${JWT_SECRET:<dev-default>}` — and rotate the value.
-
-2. **Seeded admin credential in the repo.** `data.sql` carries a BCrypt hash of
+1. **Seeded admin credential in the repo.** `data.sql` carries a BCrypt hash of
    `admin123`. **Fix:** seed only in a dev profile, or create the admin out-of-band.
 
-3. **No token revocation / logout is client-side only.** Logout just deletes the
+2. **No token revocation / logout is client-side only.** Logout just deletes the
    cookie; a token captured beforehand stays valid until `exp` (up to 24h). There is
    no blacklist and no refresh-token rotation. **Fix (if needed):** short-lived
    access token + server-side refresh token with a revocation list, or a
    per-user token version claim checked against the DB.
 
-4. **Missing/expired credentials now yield 401, not a generic 403.** *(Resolved.)*
-   `RestAuthenticationEntryPoint` is registered on the filter chain, so an
-   unauthenticated request to a protected endpoint returns **401**, while an
-   authenticated caller lacking the role returns **403** — clients can distinguish
-   "log in again" from "you lack permission." The filter still swallows token
-   validation failures (§4), so a *specific* "your token expired" body is not yet
-   emitted; that refinement remains open.
-
-5. **`Secure=true` in local dev.** The cookie only flies over HTTPS, so plain-HTTP
+3. **`Secure=true` in local dev.** The cookie only flies over HTTPS, so plain-HTTP
    local testing won't receive it. **Fix:** profile-conditional `secure` flag.
 
-6. **HTTP-layer test coverage is partial.** `MaintenanceControllerTest` is the
+4. **HTTP-layer test coverage is partial.** `MaintenanceControllerTest` is the
    reference proving RBAC/validation/error-mapping over the wire, but most
    controllers are still only covered at the service level. **Fix:** extend the
    reference pattern to the other role-gated and validation-heavy endpoints.
 
-7. **`login()` uses a bare `.orElseThrow()`** with no message when re-fetching the
+5. **`login()` uses a bare `.orElseThrow()`** with no message when re-fetching the
    guest. Harmless (auth already succeeded) but yields an opaque 500 if it ever
    fires. **Fix:** throw a descriptive exception.
 
