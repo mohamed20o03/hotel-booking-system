@@ -1,12 +1,12 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:hotelbookingdb
-    driverClassName: org.h2.Driver
-    username: sa
-    password: 
-  
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:roombooking}
+    driverClassName: org.postgresql.Driver
+    username: ${POSTGRES_USER:rb_user}
+    password: ${POSTGRES_PASSWORD:rb_secret}
+
   jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     show-sql: true
     hibernate:
       ddl-auto: validate
@@ -16,13 +16,8 @@ spring:
       mode: always
       schema-locations: classpath:db/schema.sql
       data-locations: classpath:db/data.sql
-      
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
 
   data:
     redis:
       host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      port: ${REDIS_PORT:6380}

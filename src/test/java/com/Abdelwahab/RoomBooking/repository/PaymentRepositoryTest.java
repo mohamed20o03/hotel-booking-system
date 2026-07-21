@@ -9,11 +9,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+import org.springframework.transaction.annotation.Transactional;
 
+import com.Abdelwahab.RoomBooking.AbstractIntegrationTest;
 import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.model.Hotel;
 import com.Abdelwahab.RoomBooking.model.Payment;
@@ -30,13 +29,11 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
  * status = 'SUCCESS' filter. Every branch of that is a decision only a real DB
  * confirms. findByReservationId is a Spring-derived query, so it isn't tested.
  *
- * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) is used.
- * Per-context DB isolation comes from the global ${random.uuid} datasource URL in
- * src/test/resources/application.properties.
+ * Runs against a real PostgreSQL container provided by {@link AbstractIntegrationTest}.
+ * Each test rolls back its transaction so the shared container stays clean.
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = Replace.NONE)
-public class PaymentRepositoryTest {
+@Transactional
+public class PaymentRepositoryTest extends AbstractIntegrationTest {
 
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private TestEntityManager em;

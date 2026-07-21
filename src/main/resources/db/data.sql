@@ -58,11 +58,11 @@ INSERT INTO rate_plan_rate (rate_plan_id, date, price) VALUES
 -- every room type so bookings have inventory to hold.
 INSERT INTO room_type_inventory (room_type_id, date, total_rooms, booked_count)
 SELECT rt.id,
-       DATEADD('DAY', d.x, DATE '2026-01-01'),
+       (DATE '2026-01-01' + CAST(d.x AS INTEGER)),
        rt.total_rooms,
        0
 FROM room_type rt
-CROSS JOIN SYSTEM_RANGE(0, 364) d;
+CROSS JOIN generate_series(0, 364) AS d(x);
 
 -- Optional add-ons the hotel offers. Guests attach these to a PENDING reservation
 -- before payment; the unit price is frozen onto the booking at attach time.

@@ -1,0 +1,41 @@
+services:
+
+  # ─── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: hotelbooking-postgres
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-hotelbooking}
+      POSTGRES_USER:     ${POSTGRES_USER:-hb_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hb_secret}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Initialise schema and seed on first boot.
+      - ./src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./src/main/resources/db/data.sql:/docker-entrypoint-initdb.d/02-data.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hb_user} -d ${POSTGRES_DB:-hotelbooking}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: hotelbooking-redis
+    command: redis-server --save "" --appendonly no  # dev: no disk persistence
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

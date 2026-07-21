@@ -18,6 +18,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.Abdelwahab.RoomBooking.AbstractIntegrationTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -39,7 +40,7 @@ import com.Abdelwahab.RoomBooking.service.HotelService;
  * MaintenanceControllerTest for the reference explanation of the harness itself.
  */
 @SpringBootTest
-public class HotelControllerTest {
+public class HotelControllerTest extends AbstractIntegrationTest {
 
     @Autowired private WebApplicationContext context;
     private MockMvc mockMvc;

@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.Abdelwahab.RoomBooking.AbstractIntegrationTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -58,7 +59,7 @@ import com.Abdelwahab.RoomBooking.service.ReservationService;
  * the web contract (auth, RBAC, validation, status mapping) around them.
  */
 @SpringBootTest
-public class ReservationControllerTest {
+public class ReservationControllerTest extends AbstractIntegrationTest {
 
     @Autowired private WebApplicationContext context;
     private MockMvc mockMvc;

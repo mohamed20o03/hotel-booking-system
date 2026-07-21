@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.Abdelwahab.RoomBooking.AbstractIntegrationTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -42,7 +43,7 @@ import com.Abdelwahab.RoomBooking.service.PaymentService;
  * See MaintenanceControllerTest for the reference explanation of the harness.
  */
 @SpringBootTest
-public class PaymentControllerTest {
+public class PaymentControllerTest extends AbstractIntegrationTest {
 
     @Autowired private WebApplicationContext context;
     private MockMvc mockMvc;

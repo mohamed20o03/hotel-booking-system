@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.Abdelwahab.RoomBooking.AbstractIntegrationTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -60,7 +61,7 @@ import com.Abdelwahab.RoomBooking.service.MaintenanceService;
  * (one role-gated, one public, one validation-heavy) rather than every endpoint.
  */
 @SpringBootTest
-public class MaintenanceControllerTest {
+public class MaintenanceControllerTest extends AbstractIntegrationTest {
 
     @Autowired private WebApplicationContext context;
     private MockMvc mockMvc;

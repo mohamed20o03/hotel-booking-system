@@ -3,13 +3,27 @@
 -- Normalized to Third Normal Form (3NF)
 -- =============================================================
 
+DROP TABLE IF EXISTS reservation_addon CASCADE;
+DROP TABLE IF EXISTS addon CASCADE;
+DROP TABLE IF EXISTS payment CASCADE;
+DROP TABLE IF EXISTS reservation_night CASCADE;
+DROP TABLE IF EXISTS reservation CASCADE;
+DROP TABLE IF EXISTS guest CASCADE;
+DROP TABLE IF EXISTS maintenance_block CASCADE;
+DROP TABLE IF EXISTS rate_plan_rate CASCADE;
+DROP TABLE IF EXISTS rate_plan CASCADE;
+DROP TABLE IF EXISTS room CASCADE;
+DROP TABLE IF EXISTS room_type_inventory CASCADE;
+DROP TABLE IF EXISTS room_type CASCADE;
+DROP TABLE IF EXISTS hotel CASCADE;
+
 
 -- -------------------------------------------------------------
 -- TABLE: hotel
 -- Stores information about each hotel in the system.
 -- -------------------------------------------------------------
 CREATE TABLE hotel (
-    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id           BIGSERIAL PRIMARY KEY,
     name         VARCHAR(100) NOT NULL,
     address      VARCHAR(200) NOT NULL,
     city         VARCHAR(50)  NOT NULL,
@@ -30,7 +44,7 @@ CREATE TABLE hotel (
 -- duplicate room types within the same hotel.
 -- -------------------------------------------------------------
 CREATE TABLE room_type (
-    id                   BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id                   BIGSERIAL PRIMARY KEY,
     hotel_id             BIGINT          NOT NULL,
     name                 VARCHAR(100)    NOT NULL,
     description          TEXT,
@@ -52,7 +66,7 @@ CREATE TABLE room_type (
 -- Booking locks these rows (SELECT ... FOR UPDATE) to prevent double-booking.
 -- -------------------------------------------------------------
 CREATE TABLE room_type_inventory (
-    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id           BIGSERIAL PRIMARY KEY,
     room_type_id BIGINT  NOT NULL,
     date         DATE    NOT NULL,
     total_rooms  INT     NOT NULL,
@@ -70,7 +84,7 @@ CREATE TABLE room_type_inventory (
 -- The combination of (room_type_id, room_number) is unique.
 -- -------------------------------------------------------------
 CREATE TABLE room (
-    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id           BIGSERIAL PRIMARY KEY,
     room_type_id BIGINT       NOT NULL,
     room_number  INT          NOT NULL,
     floor        INT          NOT NULL,
@@ -88,7 +102,7 @@ CREATE TABLE room (
 -- currency comes from the room type, keeping a stay single-currency.
 -- -------------------------------------------------------------
 CREATE TABLE rate_plan (
-    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id                  BIGSERIAL PRIMARY KEY,
     room_type_id        BIGINT          NOT NULL,
     name                VARCHAR(50)     NOT NULL,
     min_stay_nights     INT             DEFAULT 1,
@@ -105,7 +119,7 @@ CREATE TABLE rate_plan (
 -- row is billed at room_type.base_price_per_night during pricing.
 -- -------------------------------------------------------------
 CREATE TABLE rate_plan_rate (
-    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id           BIGSERIAL PRIMARY KEY,
     rate_plan_id BIGINT          NOT NULL,
     date         DATE            NOT NULL,
     price        DECIMAL(19, 2)  NOT NULL,
@@ -119,7 +133,7 @@ CREATE TABLE rate_plan_rate (
 -- Records periods where a room is unavailable due to maintenance.
 -- -------------------------------------------------------------
 CREATE TABLE maintenance_block (
-    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id         BIGSERIAL PRIMARY KEY,
     room_id    BIGINT       NOT NULL,
     start_date DATE         NOT NULL,
     end_date   DATE         NOT NULL,
@@ -136,7 +150,7 @@ CREATE TABLE maintenance_block (
 -- document_type distinguishes between passport, national ID, etc.
 -- -------------------------------------------------------------
 CREATE TABLE guest (
-    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id              BIGSERIAL PRIMARY KEY,
     first_name      VARCHAR(50)  NOT NULL,
     last_name       VARCHAR(50)  NOT NULL,
     email           VARCHAR(100) NOT NULL UNIQUE,
@@ -163,7 +177,7 @@ CREATE TABLE guest (
 --   protecting against future rate changes.
 -- -------------------------------------------------------------
 CREATE TABLE reservation (
-    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id                  BIGSERIAL PRIMARY KEY,
     guest_id            BIGINT          NOT NULL,
     rate_plan_id        BIGINT          NOT NULL,
     assigned_room_id    BIGINT          NULL,
@@ -195,7 +209,7 @@ CREATE TABLE reservation (
 -- rate plan override (PLAN) or the room type's base rate (BASE).
 -- -------------------------------------------------------------
 CREATE TABLE reservation_night (
-    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id             BIGSERIAL PRIMARY KEY,
     reservation_id BIGINT          NOT NULL,
     date           DATE            NOT NULL,
     rate_amount    DECIMAL(19, 2)  NOT NULL,
@@ -212,7 +226,7 @@ CREATE TABLE reservation_night (
 -- transaction_reference: the external ID from the payment gateway (e.g., Stripe, Paymob).
 -- -------------------------------------------------------------
 CREATE TABLE payment (
-    id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id                    BIGSERIAL PRIMARY KEY,
     reservation_id        BIGINT          NOT NULL,
     amount                DECIMAL(19, 2)  NOT NULL,
     currency              VARCHAR(3)      DEFAULT 'EGP',
@@ -222,7 +236,7 @@ CREATE TABLE payment (
     transaction_reference VARCHAR(100)    UNIQUE,     -- External gateway transaction ID
     status                VARCHAR(20)     NOT NULL,   -- e.g., PENDING, SUCCESS, FAILED, REFUNDED
     created_at            TIMESTAMP       DEFAULT CURRENT_TIMESTAMP,
-    updated_at            TIMESTAMP       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP       DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (reservation_id) REFERENCES reservation(id) ON DELETE RESTRICT
 );
 
@@ -233,7 +247,7 @@ CREATE TABLE payment (
 -- Each addon belongs to one hotel so hotels can manage their own pricing.
 -- -------------------------------------------------------------
 CREATE TABLE addon (
-    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id         BIGSERIAL PRIMARY KEY,
     hotel_id   BIGINT          NOT NULL,
     name       VARCHAR(100)    NOT NULL,
     category   VARCHAR(50)     NOT NULL,   -- e.g., TRANSPORTATION, FOOD, SPA
@@ -255,7 +269,7 @@ CREATE TABLE addon (
 -- Deleting an addon is blocked if it is referenced by any reservation (RESTRICT).
 -- -------------------------------------------------------------
 CREATE TABLE reservation_addon (
-    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id             BIGSERIAL PRIMARY KEY,
     reservation_id BIGINT          NOT NULL,
     addon_id       BIGINT          NOT NULL,
     quantity       INT             DEFAULT 1,

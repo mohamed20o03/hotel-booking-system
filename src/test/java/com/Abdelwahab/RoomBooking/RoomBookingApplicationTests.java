@@ -11,7 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
  * property, a schema mismatch) fails here before any narrower test runs.
  */
 @SpringBootTest
-class RoomBookingApplicationTests {
+class RoomBookingApplicationTests extends AbstractIntegrationTest {
 
 	/**
 	 * Given the full application configuration;

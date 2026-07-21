@@ -9,11 +9,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+import org.springframework.transaction.annotation.Transactional;
 
+import com.Abdelwahab.RoomBooking.AbstractIntegrationTest;
 import com.Abdelwahab.RoomBooking.model.Hotel;
 import com.Abdelwahab.RoomBooking.model.MaintenanceBlock;
 import com.Abdelwahab.RoomBooking.model.Room;
@@ -25,13 +24,11 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
  * The boundary behaviour (touching vs. truly overlapping, and per-room scoping)
  * is exactly what only a real database confirms; a mocked boolean proves nothing.
  *
- * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) is used.
- * Per-context DB isolation comes from the global ${random.uuid} datasource URL in
- * src/test/resources/application.properties.
+ * Runs against a real PostgreSQL container provided by {@link AbstractIntegrationTest}.
+ * Each test rolls back its transaction so the shared container stays clean.
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = Replace.NONE)
-public class MaintenanceBlockRepositoryTest {
+@Transactional
+public class MaintenanceBlockRepositoryTest extends AbstractIntegrationTest {
 
     @Autowired private MaintananceBlockRepository maintenanceBlockRepository;
     @Autowired private TestEntityManager em;

@@ -9,11 +9,10 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+import org.springframework.transaction.annotation.Transactional;
 
+import com.Abdelwahab.RoomBooking.AbstractIntegrationTest;
 import com.Abdelwahab.RoomBooking.model.Guest;
 import com.Abdelwahab.RoomBooking.model.Hotel;
 import com.Abdelwahab.RoomBooking.model.MaintenanceBlock;
@@ -28,24 +27,12 @@ import com.Abdelwahab.RoomBooking.model.RoomType;
  * with a double NOT EXISTS (overlapping reservations + maintenance blocks).
  * Only a real database proves this query behaves; Mockito cannot.
  *
- * Why @AutoConfigureTestDatabase(replace = NONE):
- *   The app uses ddl-auto=validate and creates its schema from schema.sql. By
- *   default @DataJpaTest swaps in its own embedded DB and lets Hibernate build
- *   the schema — which would bypass schema.sql and clash with 'validate'. NONE
- *   keeps the configured H2 + schema.sql wiring, so the test runs against the
- *   exact same schema as production.
- *
- * Note: data.sql seed rows exist in the DB, but every query here is scoped to a
- * room type this test creates, so seeded rows never affect the assertions.
- * @DataJpaTest wraps each test in a transaction and rolls it back afterward.
+ * Runs against a real PostgreSQL container provided by {@link AbstractIntegrationTest}.
+ * Each test is wrapped in a transaction that rolls back on completion, keeping the
+ * shared database clean between tests.
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = Replace.NONE)
-// Each context gets its own in-memory DB via the global ${random.uuid} datasource
-// URL in src/test/resources/application.properties, so schema.sql runs cleanly once
-// per context. Without that isolation, a second context reusing the same DB would
-// fail with "table already exists".
-public class RoomRepositoryTest {
+@Transactional
+public class RoomRepositoryTest extends AbstractIntegrationTest {
 
     @Autowired private RoomRepository roomRepository;
     @Autowired private TestEntityManager em;

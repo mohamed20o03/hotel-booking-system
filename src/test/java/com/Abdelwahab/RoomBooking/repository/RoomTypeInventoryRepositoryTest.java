@@ -13,15 +13,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.Abdelwahab.RoomBooking.AbstractIntegrationTest;
 import com.Abdelwahab.RoomBooking.model.Hotel;
 import com.Abdelwahab.RoomBooking.model.RoomType;
 import com.Abdelwahab.RoomBooking.model.RoomTypeInventory;
@@ -33,19 +32,16 @@ import com.Abdelwahab.RoomBooking.model.RoomTypeInventory;
  * pessimistic lock the whole double-booking guarantee rests on. Only a real
  * database proves either; the concurrency test needs two live transactions.
  *
- * See RoomRepositoryTest for why @AutoConfigureTestDatabase(replace = NONE) is used
- * (schema.sql + validate). Per-context DB isolation comes from the global
- * ${random.uuid} datasource URL in src/test/resources/application.properties.
+ * Runs against a real PostgreSQL container provided by {@link AbstractIntegrationTest}.
+ * Each test is transactional and rolls back, except the concurrency test which must
+ * commit its seed data so the worker threads on separate connections can see it.
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = Replace.NONE)
-// The concurrency test COMMITS its seed (commitSeed) instead of rolling back, so
-// those rows outlive the test. Now that all @DataJpaTest classes share one cached
-// context (and one DB), that committed data would leak into the next class and
-// collide on unique constraints (e.g. hotel.phone). Marking the context dirty after
-// this class forces a fresh DB for whatever runs next.
+@Transactional
+// The concurrency test COMMITS its seed instead of rolling back, so those rows
+// outlive the test. Marking the context dirty after this class forces a context
+// reload for whatever runs next, preventing unique-constraint collisions.
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-public class RoomTypeInventoryRepositoryTest {
+public class RoomTypeInventoryRepositoryTest extends AbstractIntegrationTest {
 
     @Autowired private RoomTypeInventoryRepository inventoryRepository;
     @Autowired private TestEntityManager em;
