@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Logging configuration for the Hotel Booking System.
+
+    Two profiles, one philosophy:
+      • dev  → human-readable console with the MDC trace keys inlined, so a
+               developer can follow a single request by eye.
+      • prod → newline-delimited JSON (Elastic Common Schema) on stdout, so a
+               log shipper (Fluent Bit / Filebeat) can forward structured events
+               to Elasticsearch / Loki / CloudWatch without a regex parse step.
+
+    JSON is produced by Spring Boot 4.1's built-in StructuredLogEncoder
+    (format "ecs") — NO logstash-logback-encoder dependency is required.
+
+    The three MDC keys populated per request are:
+      requestId — one id per HTTP request (generated in MdcLoggingFilter)
+      traceId   — a cross-service correlation id (honours an inbound X-Trace-Id)
+      userId    — the authenticated guest id (set by JwtAuthenticationFilter)
+    They travel automatically into every log line and every JSON document, so a
+    production incident can be filtered down to a single user or request.
+-->
+<configuration>
+    <!-- Pull in Boot's colour/level conversion rules and default property values. -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <!-- ── DEV: readable console ──────────────────────────────────────────────
+         [requestId|userId] is appended after the logger name so a developer can
+         eyeball which request/user a line belongs to. Empty when outside a
+         request (e.g. the scheduled sweeper). -->
+    <springProfile name="dev">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>
+                    %clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr([%X{requestId:-       }|%X{userId:-anon}]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx
+                </pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <!-- Our own code at DEBUG in dev so flow-level statements are visible. -->
+        <logger name="com.Abdelwahab.RoomBooking" level="DEBUG"/>
+    </springProfile>
+    <!-- ── PROD: structured JSON (ECS) to stdout ──────────────────────────────
+         One JSON object per line. MDC keys are emitted as top-level fields, so
+         `userId` / `requestId` / `traceId` are queryable without unpacking a
+         nested object. SQL and framework noise stay at WARN to keep volume down;
+         our own packages log at INFO. -->
+    <springProfile name="prod">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+                <format>ecs</format>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+        <logger name="com.Abdelwahab.RoomBooking" level="INFO"/>
+        <logger name="org.hibernate.SQL" level="WARN"/>
+        <logger name="org.springframework.web" level="WARN"/>
+    </springProfile>
+
+</configuration>

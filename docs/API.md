@@ -72,7 +72,9 @@ Every error returns a consistent JSON body, produced centrally by
 |---|---|---|---|
 | `POST` | `/api/auth/register` | Public | Register a guest (always `ROLE_USER`); sets the `jwt` cookie. |
 | `POST` | `/api/auth/login` | Public | Authenticate an existing guest; sets the `jwt` cookie. |
-| `POST` | `/api/auth/logout` | Public | Clears the `jwt` cookie (client-side; the token itself is not revoked server-side). |
+| `POST` | `/api/auth/logout` | Public | Clears the `jwt` cookie **and** records the token's `jti` in the Redis blacklist (server-side revocation). |
+| `PATCH` | `/api/auth/me/password` | Authenticated | Change own password; revokes **all** tokens for the user across every device. |
+| `POST` | `/api/auth/admin/ban/{userId}` | Admin | Ban a guest globally; revokes every active token for that user immediately. |
 
 **`POST /api/auth/register`** — body:
 ```json
@@ -88,11 +90,22 @@ Every error returns a consistent JSON body, produced centrally by
   "dateOfBirth": "1990-05-01"
 }
 ```
-- **`200 OK`** — no body; the `jwt` cookie is set in the `Set-Cookie` response header.
+- **`201 Created`** — no body; the `jwt` cookie is set in the `Set-Cookie` response header.
 - **`400`** — validation failure. **`409`** — email already registered.
 
 **`POST /api/auth/login`** — body: `{ "email": "jane@example.com", "password": "s3cret-pw" }`
 - **`200 OK`** — no body; `jwt` cookie set. **`400`** — validation failure. **`401`** — bad credentials (`AuthenticationException`).
+
+**`POST /api/auth/logout`**
+- **`204 No Content`**. The `jwt` cookie is cleared and the token's `jti` is written to the Redis blacklist, so any copy of the token captured before logout is rejected immediately.
+
+**`PATCH /api/auth/me/password`** — body: `{ "currentPassword": "old-pw", "newPassword": "new-pw" }`
+- **`204 No Content`**. Verifies the current password, updates it, and writes a per-user revocation entry to Redis — every token for this account across all devices is invalidated at once. The current device's cookie is also cleared.
+- **`400`** — validation failure or wrong current password. **`401`** — unauthenticated.
+
+**`POST /api/auth/admin/ban/{userId}`** — body: `{ "reason": "Terms of service violation" }`
+- **`200 OK`** with a confirmation message. Writes a per-user revocation entry to Redis, immediately invalidating every active token for the target user.
+- **`400`** — blank reason. **`401`** — unauthenticated. **`403`** — not admin. **`404`** — user not found.
 
 ---
 

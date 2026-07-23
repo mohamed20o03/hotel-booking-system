@@ -177,6 +177,7 @@ public class AuthController {
             @PathVariable Long userId,
             @Valid @RequestBody BanUserRequestDTO request) {
 
+        log.info("Admin ban requested [targetUserId={}]", userId);
         authenticationService.banUser(userId, request.reason());
         return ResponseEntity.ok("User " + userId + " has been banned. Reason: " + request.reason());
     }

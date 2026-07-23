@@ -72,6 +72,7 @@ public class AuthenticationService {
             .orElseThrow(() -> new RuntimeException("User not found after registration"));
 
         String jwtToken = jwtService.generateTokens(guest);
+        log.info("Guest registered [guestId={}]", guest.getId());
         return jwtToken;
     }
 
@@ -101,6 +102,7 @@ public class AuthenticationService {
             .orElseThrow(); // Should exist since authentication passed
 
         String jwtToken = jwtService.generateTokens(guest);
+        log.info("Guest logged in [guestId={}]", guest.getId());
         return jwtToken;
     }
 

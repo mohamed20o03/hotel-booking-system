@@ -95,7 +95,7 @@ Two independent race conditions are handled with two different locks, deliberate
   second transaction blocks on the row until the first commits, then re-reads the
   now-incremented count and loses. Without the lock both would read the same free
   count and both write a booking. This is proven by a real two-thread test against
-  a live H2 connection, not a mock.
+  a live PostgreSQL connection (Testcontainers), not a mock.
 - **Pay-vs-expire race (optimistic).** A `@Version` column on `Reservation` guards
   the hold. If the hold-expiry sweeper and an incoming payment touch the same
   `PENDING` reservation at once, the optimistic-lock check turns the loser into a
@@ -113,15 +113,15 @@ Two independent race conditions are handled with two different locks, deliberate
   into the filter chain, so every request arrived anonymous and all authenticated
   cases returned 403. The manual wiring runs the **actual** production security
   rules, so RBAC/ownership assertions mean what they say.
-- **Context-isolated in-memory DBs.** Each test's `datasource.url` uses
-  `jdbc:h2:mem:rb-test-${random.uuid}` so each Spring context gets its own H2. A
-  fixed name let a second context re-run `schema.sql` against existing tables
-  ("table already exists") and poison the context cache. One class that *commits*
-  its seed (the concurrency test) is marked `@DirtiesContext` so committed rows
-  don't leak into the next class sharing that cached context.
-- **Repository tests run against real H2** with `@AutoConfigureTestDatabase(NONE)`
-  so hand-written JPQL and the pessimistic lock are exercised against a real
-  database, the only place they can be proven.
+- **Testcontainers for all integration tests.** A shared `AbstractIntegrationTest`
+  base class starts a `PostgreSQLContainer` and a `RedisContainer` once per JVM in a
+  `static` initialiser (not `@Container`, which would stop them on `@DirtiesContext`
+  reloads). `@DynamicPropertySource` injects the random ports before any
+  `ApplicationContext` is created. Repository tests, controller tests, and the Redis
+  revocation integration test all extend this base — no H2, no mocks for the DB or
+  cache layer.
+- **147 tests across 23 test files**, covering unit, repository, controller, security,
+  and concurrency scenarios.
 
 ### Error handling & web contracts
 A single `@RestControllerAdvice` (`GlobalExceptionHandler`) maps domain exceptions
@@ -147,6 +147,39 @@ Every response body is a uniform `ErrorResponse` (`timestamp`, `status`, `error`
 > **401** (verified by the controller tests), while an **authenticated** caller who
 > lacks the required role returns **403**. The two failure modes are distinguishable
 > by clients.
+
+### Observability & structured logging
+Logging is treated as a first-class cross-cutting concern, configured entirely in
+`logback-spring.xml` and threaded through every request by an MDC filter.
+
+- **Per-request MDC tracing.** `config/MdcLoggingFilter` runs at
+  `Ordered.HIGHEST_PRECEDENCE` (ahead of the security chain, so even a rejected
+  request is traceable) and stamps three keys onto the request thread: `requestId`
+  (one per request, echoed back as the `X-Request-Id` response header), `traceId`
+  (cross-service correlation; honours an inbound `X-Trace-Id`), and `userId` (added
+  by `JwtAuthenticationFilter` once the token verifies). The MDC is cleared in a
+  `finally` block — servlet threads are pooled, and a stale `userId` leaking into the
+  next request's logs would corrupt any investigation built on them.
+- **Profile-specific output.** *dev* → a colourised console line with
+  `[requestId|userId]` inlined and the application package at `DEBUG`. *prod* →
+  newline-delimited **ECS JSON** via Spring Boot 4.1's native `StructuredLogEncoder`
+  (no logstash-encoder dependency), with MDC keys promoted to top-level fields so a
+  shipper can forward to Elasticsearch/Loki/CloudWatch without a regex parse. SQL and
+  framework loggers are pinned to `WARN` in prod to keep volume down.
+- **Level discipline.** `INFO` marks state-changing business events (booking created,
+  payment confirmed, hold expired, add-on attached, hotel/room-type/add-on CRUD,
+  token revoked, admin ban); `DEBUG` marks write-endpoint entry and non-trivial flow;
+  pure reads (`GET` list/detail, pricing) stay quiet. **No full entities or secrets**
+  (passwords, raw tokens) are ever logged — only ids and the business-relevant scalar
+  fields.
+- **Exception logging lives in one place.** `GlobalExceptionHandler` is the sole
+  logger of failures, so nothing is logged twice: the unmapped catch-all logs at
+  `ERROR` *with the stack trace* (the only place a 500 is recorded); business
+  conflicts (409) and security events — failed login (401) and access-denied (403) —
+  log at `WARN`; expected client errors (404, state/precondition 400) log at `DEBUG`.
+  Every line inherits the request's MDC `requestId`/`traceId`, so a 500 seen by a
+  client maps straight to its stack trace. The 401 line never includes the submitted
+  email or password.
 
 ---
 
@@ -186,10 +219,6 @@ lifecycle transitions) and is the reference for endpoint-level documentation.
 An honest ledger of current trade-offs. Security-specific gaps are expanded in
 [SECURITY.md §9](SECURITY.md); this is the system-level view.
 
-- **Client-side logout only.** Logout clears the cookie; the JWT stays
-  cryptographically valid until it expires. There is no server-side revocation
-  list, so a token captured before logout still works. *Next:* a short-lived
-  access token + refresh token, or a revocation/`jti` denylist.
 - **No CORS configuration.** Fine for same-origin/non-browser clients; a
   cross-origin SPA cannot send the credentialed cookie until a proper CORS bean
   exists (explicit origins + `allowCredentials(true)`, never `*` with credentials).

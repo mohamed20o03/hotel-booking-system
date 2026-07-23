@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Centralized, application-wide exception translation for the REST API.
@@ -49,6 +50,7 @@ import jakarta.servlet.http.HttpServletRequest;
  *
  * @see ErrorResponse
  */
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -64,6 +66,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
         ResourceNotFoundException ex, HttpServletRequest request) {
 
+        log.debug("Resource not found on {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
         ErrorResponse errorResponse = new ErrorResponse(
             LocalDateTime.now(),
             HttpStatus.NOT_FOUND.value(),
@@ -88,6 +91,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({NoAvailabilityException.class, DuplicateResourceException.class, PaymentException.class})
     public ResponseEntity<ErrorResponse> handleConflictExceptions(
         RuntimeException ex, HttpServletRequest request) {
+
+        // Recoverable business-state clash (no inventory, duplicate, unpayable) —
+        // WARN, not ERROR: expected under contention, but worth surfacing. No stack
+        // trace; the message and request path are enough to see the pattern.
+        log.warn("Business conflict [{}] on {} {}: {}",
+                ex.getClass().getSimpleName(), request.getMethod(), request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
             LocalDateTime.now(),
@@ -116,6 +125,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleAuthenticationException(
         AuthenticationException ex, HttpServletRequest request) {
 
+        // Security-relevant: repeated failures on one requestId/IP hint at a
+        // brute-force attempt. WARN, but never log the submitted email/password —
+        // that would put a credential (and enumeration data) into the log store.
+        log.warn("Authentication failed on {} {}", request.getMethod(), request.getRequestURI());
+
         ErrorResponse errorResponse = new ErrorResponse(
             LocalDateTime.now(),
             HttpStatus.UNAUTHORIZED.value(),
@@ -140,6 +154,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDeniedException(
         AccessDeniedException ex, HttpServletRequest request) {
+
+        // Authenticated caller reaching for something above their role — possible
+        // privilege probing. WARN; the MDC userId already identifies who.
+        log.warn("Access denied on {} {}", request.getMethod(), request.getRequestURI());
 
         ErrorResponse errorResponse = new ErrorResponse(
             LocalDateTime.now(),
@@ -194,6 +212,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
             IllegalArgumentException ex, HttpServletRequest request) {
 
+        log.debug("Bad request on {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+
         ErrorResponse errorResponse = new ErrorResponse(
                 LocalDateTime.now(),
                 HttpStatus.BAD_REQUEST.value(),
@@ -239,7 +259,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(
             Exception ex, HttpServletRequest request) {
-            
+
+        // The only place an unhandled failure is recorded — log at ERROR with the
+        // full stack trace and request context so the incident is investigable via
+        // the MDC requestId/traceId already on the thread.
+        log.error("Unhandled exception on {} {}", request.getMethod(), request.getRequestURI(), ex);
+
         ErrorResponse errorResponse = new ErrorResponse(
                 LocalDateTime.now(),
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),

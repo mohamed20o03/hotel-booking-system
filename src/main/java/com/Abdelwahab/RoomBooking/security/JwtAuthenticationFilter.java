@@ -12,6 +12,9 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.slf4j.MDC;
+
+import com.Abdelwahab.RoomBooking.config.MdcLoggingFilter;
 
 import io.micrometer.common.lang.NonNull;
 import jakarta.servlet.FilterChain;
@@ -178,6 +181,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // Attaches IP, session ID, and other request metadata for audit logging.
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
+
+                // Stamp the authenticated user onto the MDC so every downstream log
+                // line (service, repository, controller) is attributable to them.
+                // MdcLoggingFilter clears the whole MDC at the end of the request.
+                if (userId != null) {
+                    MDC.put(MdcLoggingFilter.USER_ID, userId);
+                }
+                log.debug("Authenticated request principal [userId={}]", userId);
             }
         }
 

@@ -20,6 +20,7 @@ import com.Abdelwahab.RoomBooking.service.AddonService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HTTP entry point for a hotel's add-on catalogue (airport transfer, spa, etc.):
@@ -62,6 +63,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/hotels/{hotelId}/addons")
 @RequiredArgsConstructor
+@Slf4j
 public class AddonController {
 
     private final AddonService addonService;
@@ -107,6 +109,7 @@ public class AddonController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AddonResponseDTO> createAddon(
             @PathVariable Long hotelId, @Valid @RequestBody AddonRequestDTO request) {
+        log.debug("POST /api/hotels/{}/addons [name={}]", hotelId, request.name());
         AddonResponseDTO created = addonService.createAddon(hotelId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -136,6 +139,7 @@ public class AddonController {
     public ResponseEntity<AddonResponseDTO> updateAddon(
             @PathVariable Long hotelId, @PathVariable Long addonId,
             @Valid @RequestBody AddonRequestDTO request) {
+        log.debug("PUT /api/hotels/{}/addons/{}", hotelId, addonId);
         return ResponseEntity.ok(addonService.updateAddon(hotelId, addonId, request));
     }
 
@@ -160,6 +164,7 @@ public class AddonController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteAddon(
             @PathVariable Long hotelId, @PathVariable Long addonId) {
+        log.debug("DELETE /api/hotels/{}/addons/{}", hotelId, addonId);
         addonService.deleteAddon(hotelId, addonId);
         return ResponseEntity.noContent().build();
     }

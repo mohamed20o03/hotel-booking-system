@@ -19,6 +19,7 @@ import com.Abdelwahab.RoomBooking.repository.PaymentRepository;
 import com.Abdelwahab.RoomBooking.repository.ReservationRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Records payments against a reservation and confirms the booking once its balance
@@ -50,6 +51,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentService {
 
     private static final String PROVIDER = "FRONT_DESK";
@@ -110,6 +112,8 @@ public class PaymentService {
         // release it, so honouring the payment could double-sell the room.
         if (reservation.getHoldExpiresAt() != null
                 && reservation.getHoldExpiresAt().isBefore(LocalDateTime.now())) {
+            log.warn("Payment rejected: hold window expired [confirmation={}]",
+                    reservation.getConfirmationNumber());
             throw new PaymentException(String.format(
                     "The payment window for reservation %s has expired.",
                     reservation.getConfirmationNumber()));
@@ -120,6 +124,8 @@ public class PaymentService {
 
         // Don't accept money beyond what is owed.
         if (request.amount().compareTo(balanceDue) > 0) {
+            log.warn("Payment rejected: amount {} exceeds balance due {} [confirmation={}]",
+                    request.amount(), balanceDue, reservation.getConfirmationNumber());
             throw new PaymentException(String.format(
                     "Payment of %s exceeds the balance due of %s on reservation %s.",
                     request.amount(), balanceDue, reservation.getConfirmationNumber()));
@@ -141,6 +147,10 @@ public class PaymentService {
                 .build();
         payment = paymentRepository.save(payment);
 
+        log.info("Payment recorded [confirmation={} amount={} {} method={} ref={}]",
+                reservation.getConfirmationNumber(), payment.getAmount(), payment.getCurrency(),
+                payment.getMethod(), payment.getTransactionReference());
+
         // Re-total including this payment; confirm once the balance is cleared.
         BigDecimal paidNow = alreadyPaid.add(request.amount());
         BigDecimal remaining = reservation.getTotalPrice().subtract(paidNow);
@@ -148,6 +158,8 @@ public class PaymentService {
             reservation.setStatus(ReservationStatus.CONFIRMED);
             reservation.setHoldExpiresAt(null); // paid — no longer a timed hold
             reservationRepository.save(reservation);
+            log.info("Reservation confirmed — balance fully paid [confirmation={} total={}]",
+                    reservation.getConfirmationNumber(), reservation.getTotalPrice());
         }
 
         return new PaymentResponseDTO(

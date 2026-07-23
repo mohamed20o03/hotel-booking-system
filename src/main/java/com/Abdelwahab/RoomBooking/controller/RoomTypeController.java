@@ -20,6 +20,7 @@ import com.Abdelwahab.RoomBooking.service.RoomTypeService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HTTP entry point for a hotel's room-type catalogue: browsing room types and, for
@@ -62,6 +63,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/hotels/{hotelId}/room-types")
 @RequiredArgsConstructor
+@Slf4j
 public class RoomTypeController {
 
     private final RoomTypeService roomTypeService;
@@ -108,6 +110,7 @@ public class RoomTypeController {
     public ResponseEntity<RoomTypeResponseDTO> createRoomType(
             @PathVariable Long hotelId,
             @Valid @RequestBody RoomTypeRequestDTO request) {
+        log.debug("POST /api/hotels/{}/room-types [name={}]", hotelId, request.name());
         RoomTypeResponseDTO created = roomTypeService.createRoomType(hotelId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -138,6 +141,7 @@ public class RoomTypeController {
             @PathVariable Long hotelId,
             @PathVariable Long id,
             @Valid @RequestBody RoomTypeRequestDTO request) {
+        log.debug("PUT /api/hotels/{}/room-types/{}", hotelId, id);
         RoomTypeResponseDTO updated = roomTypeService.updateRoomType(hotelId, id, request);
         return ResponseEntity.ok(updated);
     }
@@ -163,6 +167,7 @@ public class RoomTypeController {
     public ResponseEntity<Void> deleteRoomType(
             @PathVariable Long hotelId,
             @PathVariable Long id) {
+        log.debug("DELETE /api/hotels/{}/room-types/{}", hotelId, id);
         roomTypeService.deleteRoomType(hotelId, id);
         return ResponseEntity.noContent().build();
     }

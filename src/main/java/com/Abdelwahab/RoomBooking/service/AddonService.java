@@ -14,6 +14,7 @@ import com.Abdelwahab.RoomBooking.repository.AddonRepository;
 import com.Abdelwahab.RoomBooking.repository.HotelRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Manages a hotel's catalogue of optional add-ons (airport transfer, spa, etc.).
@@ -34,6 +35,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AddonService {
 
     private final AddonRepository addonRepository;
@@ -87,7 +89,10 @@ public class AddonService {
                 .priceUnit(request.priceUnit())
                 .available(request.available() == null ? Boolean.TRUE : request.available())
                 .build();
-        return toDTO(addonRepository.save(addon));
+        Addon saved = addonRepository.save(addon);
+        log.info("Add-on created [addonId={} hotelId={} name={}]",
+                saved.getId(), hotelId, saved.getName());
+        return toDTO(saved);
     }
 
     /**
@@ -119,6 +124,7 @@ public class AddonService {
         if (request.available() != null) {
             addon.setAvailable(request.available());
         }
+        log.info("Add-on updated [addonId={} hotelId={}]", addonId, hotelId);
         return toDTO(addonRepository.save(addon));
     }
 
@@ -141,6 +147,7 @@ public class AddonService {
         // A reservation_addon FK with ON DELETE RESTRICT blocks deletion of an
         // add-on still referenced by a booking — the DB is the final guard.
         addonRepository.delete(addon);
+        log.info("Add-on deleted [addonId={} hotelId={}]", addonId, hotelId);
     }
 
     private void requireHotel(Long hotelId) {

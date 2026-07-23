@@ -24,6 +24,7 @@ import com.Abdelwahab.RoomBooking.service.ReservationService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HTTP entry point for the reservation lifecycle: booking, retrieval, guest
@@ -64,6 +65,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/reservations")
 @RequiredArgsConstructor
+@Slf4j
 public class ReservationController {
 
     private final ReservationService reservationService;
@@ -90,6 +92,8 @@ public class ReservationController {
      */
     @PostMapping
     public ResponseEntity<ReservationConfirmationDTO> createBooking(@Valid @RequestBody ReservationRequestDTO request) {
+        log.debug("POST /api/reservations [ratePlanId={} checkIn={} checkOut={}]",
+                request.ratePlanId(), request.checkInDate(), request.checkOutDate());
         ReservationConfirmationDTO responseDTO = reservationService.createBooking(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(responseDTO);
     }
@@ -148,6 +152,7 @@ public class ReservationController {
      */
     @PatchMapping("/{id}/cancel")
     public ResponseEntity<Void> cancelReservation(@PathVariable Long id) {
+        log.debug("PATCH /api/reservations/{}/cancel", id);
         reservationService.cancelReservation(id);
         return ResponseEntity.noContent().build();
     }
@@ -177,6 +182,7 @@ public class ReservationController {
     @PatchMapping("/{id}/check-in")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ReservationResponseDTO> checkIn(@PathVariable Long id) {
+        log.debug("PATCH /api/reservations/{}/check-in", id);
         ReservationResponseDTO reservation = reservationService.checkIn(id);
         return ResponseEntity.ok(reservation);
     }
@@ -188,6 +194,8 @@ public class ReservationController {
     @PostMapping("/{id}/addons")
     public ResponseEntity<ReservationAddonResponseDTO> attachAddon(
             @PathVariable Long id, @Valid @RequestBody ReservationAddonRequestDTO request) {
+        log.debug("POST /api/reservations/{}/addons [addonId={} qty={}]",
+                id, request.addonId(), request.quantity());
         ReservationAddonResponseDTO line = reservationAddonService.attachAddon(id, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(line);
     }
@@ -204,6 +212,7 @@ public class ReservationController {
     @DeleteMapping("/{id}/addons/{addonLineId}")
     public ResponseEntity<Void> detachAddon(
             @PathVariable Long id, @PathVariable Long addonLineId) {
+        log.debug("DELETE /api/reservations/{}/addons/{}", id, addonLineId);
         reservationAddonService.detachAddon(id, addonLineId);
         return ResponseEntity.noContent().build();
     }

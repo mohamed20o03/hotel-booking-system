@@ -35,6 +35,7 @@ import com.Abdelwahab.RoomBooking.repository.RoomRepository;
 import com.Abdelwahab.RoomBooking.repository.RoomTypeRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * The heart of the booking domain: it coordinates the reservation lifecycle from
@@ -81,6 +82,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ReservationService {
 
     private final RoomRepository roomRepository;
@@ -283,6 +285,10 @@ public class ReservationService {
 
         reservation = reservationRepository.save(reservation); // cascades nights
 
+        log.info("Booking created [confirmation={} roomType={} nights={} total={} {}]",
+                reservation.getConfirmationNumber(), roomType.getName(),
+                quote.nightCount(), quote.total(), quote.currency());
+
         // 9. Rich confirmation with the breakdown (assignedRoomId is null until check-in)
         return new ReservationConfirmationDTO(
                 reservation.getId(),
@@ -346,6 +352,8 @@ public class ReservationService {
         if (freeRooms.isEmpty()) {
             // Inventory count said a room was held, but no physical room is free —
             // indicates a maintenance block or data drift needing staff attention.
+            log.warn("Check-in blocked: inventory held but no physical room free [confirmation={} roomTypeId={}]",
+                    reservation.getConfirmationNumber(), roomType.getId());
             throw new NoAvailabilityException(
                     "No physical room is free to assign for this reservation. Please contact the front desk.");
         }
@@ -353,6 +361,9 @@ public class ReservationService {
         reservation.setAssignedRoom(freeRooms.get(0));
         reservation.setStatus(ReservationStatus.CHECKED_IN);
         reservationRepository.save(reservation);
+
+        log.info("Checked in [confirmation={} assignedRoomId={}]",
+                reservation.getConfirmationNumber(), reservation.getAssignedRoom().getId());
 
         return toDTO(reservation);
     }
@@ -457,6 +468,9 @@ public class ReservationService {
                 reservation.getRatePlan().getRoomType(),
                 reservation.getCheckInDate(),
                 reservation.getCheckOutDate());
+
+        log.info("Reservation cancelled and inventory released [confirmation={}]",
+                reservation.getConfirmationNumber());
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -496,6 +510,9 @@ public class ReservationService {
                 reservation.getRatePlan().getRoomType(),
                 reservation.getCheckInDate(),
                 reservation.getCheckOutDate());
+
+        log.info("Hold expired and inventory released [confirmation={}]",
+                reservation.getConfirmationNumber());
     }
 
     /**

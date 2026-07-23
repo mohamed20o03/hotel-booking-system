@@ -20,6 +20,7 @@ import com.Abdelwahab.RoomBooking.service.HotelService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HTTP entry point for the hotel catalogue: browsing hotels and, for staff,
@@ -59,6 +60,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/hotels")
 @RequiredArgsConstructor
+@Slf4j
 public class HotelController {
 
     private final HotelService hotelService;
@@ -112,6 +114,7 @@ public class HotelController {
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<HotelResponseDTO> createHotel(@Valid @RequestBody HotelRequestDTO request) {
+        log.debug("POST /api/hotels [name={}]", request.name());
         HotelResponseDTO created = hotelService.createHotel(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -137,6 +140,7 @@ public class HotelController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<HotelResponseDTO> updateHotel(
             @PathVariable Long id, @Valid @RequestBody HotelRequestDTO request) {
+        log.debug("PUT /api/hotels/{}", id);
         return ResponseEntity.ok(hotelService.updateHotel(id, request));
     }
 
@@ -156,6 +160,7 @@ public class HotelController {
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteHotel(@PathVariable Long id) {
+        log.debug("DELETE /api/hotels/{}", id);
         hotelService.deleteHotel(id);
         return ResponseEntity.noContent().build();
     }

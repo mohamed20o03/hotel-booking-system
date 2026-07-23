@@ -11,6 +11,7 @@ import com.Abdelwahab.RoomBooking.model.RoomTypeInventory;
 import com.Abdelwahab.RoomBooking.repository.RoomTypeInventoryRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Owns the room-type allotment calendar ({@link RoomTypeInventory}) — the
@@ -38,6 +39,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class InventoryService {
 
     private final RoomTypeInventoryRepository inventoryRepository;
@@ -123,12 +125,15 @@ public class InventoryService {
 
         for (RoomTypeInventory row : rows) {
             if (row.remaining() <= 0) {
+                log.debug("Oversell guard tripped: sold out [roomTypeId={} date={}]",
+                        roomType.getId(), row.getDate());
                 throw new NoAvailabilityException(String.format(
                         "Room type '%s' is sold out on %s.", roomType.getName(), row.getDate()));
             }
             row.setBookedCount(row.getBookedCount() + 1);
         }
         inventoryRepository.saveAll(rows);
+        log.debug("Inventory held [roomTypeId={} nights={}]", roomType.getId(), rows.size());
     }
 
     /**

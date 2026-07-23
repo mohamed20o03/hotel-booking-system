@@ -20,6 +20,7 @@ import com.Abdelwahab.RoomBooking.repository.ReservationAddonRepository;
 import com.Abdelwahab.RoomBooking.repository.ReservationRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Attaches optional add-ons (spa, transfer, ...) to a reservation and keeps the
@@ -48,6 +49,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ReservationAddonService {
 
     private final ReservationRepository reservationRepository;
@@ -113,6 +115,9 @@ public class ReservationAddonService {
                 reservation.getTotalPrice().add(lineTotal(line)));
         reservationRepository.save(reservation);
 
+        log.info("Add-on attached [confirmation={} addonId={} lineId={} qty={} lineTotal={} newTotal={}]",
+                reservation.getConfirmationNumber(), addon.getId(), line.getId(),
+                line.getQuantity(), lineTotal(line), reservation.getTotalPrice());
         return toDTO(line);
     }
 
@@ -173,6 +178,8 @@ public class ReservationAddonService {
                 reservation.getTotalPrice().subtract(lineTotal(line)));
         reservationRepository.save(reservation);
         reservationAddonRepository.delete(line);
+        log.info("Add-on detached [confirmation={} lineId={} newTotal={}]",
+                reservation.getConfirmationNumber(), reservationAddonId, reservation.getTotalPrice());
     }
 
     // ── helpers ───────────────────────────────────────────────────

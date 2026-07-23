@@ -16,6 +16,7 @@ import com.Abdelwahab.RoomBooking.service.MaintenanceService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HTTP entry point for taking physical rooms in and out of service: placing and
@@ -51,6 +52,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/maintenance")
 @RequiredArgsConstructor
+@Slf4j
 public class MaintenanceController {
 
     private final MaintenanceService maintenanceService;
@@ -85,6 +87,8 @@ public class MaintenanceController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<MaintenanceBlockResponseDTO> createBlock(
             @Valid @RequestBody MaintenanceBlockRequestDTO request) {
+        log.debug("POST /api/maintenance [roomId={} start={} end={}]",
+                request.roomId(), request.startDate(), request.endDate());
         MaintenanceBlockResponseDTO response = maintenanceService.createBlock(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -105,6 +109,7 @@ public class MaintenanceController {
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> removeBlock(@PathVariable Long id) {
+        log.debug("DELETE /api/maintenance/{}", id);
         maintenanceService.removeBlock(id);
         return ResponseEntity.noContent().build();
     }

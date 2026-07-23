@@ -14,6 +14,7 @@ import com.Abdelwahab.RoomBooking.repository.HotelRepository;
 import com.Abdelwahab.RoomBooking.repository.RoomTypeRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Manages the room types offered by a hotel — the sellable categories (base price,
@@ -30,6 +31,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RoomTypeService {
 
     private final RoomTypeRepository roomTypeRepository;
@@ -83,7 +85,10 @@ public class RoomTypeService {
                 .basePricePerNight(request.basePricePerNight())
                 .currency(request.currency())
                 .build();
-        return toDTO(roomTypeRepository.save(roomType));
+        RoomType saved = roomTypeRepository.save(roomType);
+        log.info("Room type created [roomTypeId={} hotelId={} name={}]",
+                saved.getId(), hotelId, saved.getName());
+        return toDTO(saved);
     }
 
     /**
@@ -111,6 +116,7 @@ public class RoomTypeService {
         roomType.setBasePricePerNight(request.basePricePerNight());
         roomType.setCurrency(request.currency());
 
+        log.info("Room type updated [roomTypeId={} hotelId={}]", roomTypeId, hotelId);
         return toDTO(roomTypeRepository.save(roomType));
     }
 
@@ -130,6 +136,7 @@ public class RoomTypeService {
     public void deleteRoomType(Long hotelId, Long roomTypeId) {
         RoomType roomType = resolveWithinHotel(hotelId, roomTypeId);
         roomTypeRepository.delete(roomType);
+        log.info("Room type deleted [roomTypeId={} hotelId={}]", roomTypeId, hotelId);
     }
 
     /**

@@ -13,6 +13,7 @@ import com.Abdelwahab.RoomBooking.model.Hotel;
 import com.Abdelwahab.RoomBooking.repository.HotelRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Manages the hotel catalogue — the top-level property records under which room
@@ -28,6 +29,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class HotelService {
 
     private final HotelRepository hotelRepository;
@@ -87,7 +89,9 @@ public class HotelService {
                 .timezone(request.timezone())
                 .createdAt(LocalDateTime.now())
                 .build();
-        return toDTO(hotelRepository.save(hotel));
+        Hotel saved = hotelRepository.save(hotel);
+        log.info("Hotel created [hotelId={} name={}]", saved.getId(), saved.getName());
+        return toDTO(saved);
     }
 
     /**
@@ -116,6 +120,7 @@ public class HotelService {
         hotel.setStarRating(request.starRating());
         hotel.setTimezone(request.timezone());
 
+        log.info("Hotel updated [hotelId={}]", id);
         return toDTO(hotelRepository.save(hotel));
     }
 
@@ -135,6 +140,7 @@ public class HotelService {
             throw new ResourceNotFoundException("Hotel not found with ID: " + id);
         }
         hotelRepository.deleteById(id);
+        log.info("Hotel deleted [hotelId={}]", id);
     }
 
     private HotelResponseDTO toDTO(Hotel hotel) {

@@ -13,6 +13,7 @@ import com.Abdelwahab.RoomBooking.service.PaymentService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HTTP entry point for settling reservations: recording a payment against a booking.
@@ -47,6 +48,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentController {
 
     private final PaymentService paymentService;
@@ -77,6 +79,8 @@ public class PaymentController {
      */
     @PostMapping
     public ResponseEntity<PaymentResponseDTO> pay(@Valid @RequestBody PaymentRequestDTO request) {
+        log.debug("POST /api/payments [reservationId={} amount={}]",
+                request.reservationId(), request.amount());
         PaymentResponseDTO response = paymentService.pay(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }

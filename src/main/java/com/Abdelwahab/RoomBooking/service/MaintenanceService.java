@@ -14,6 +14,7 @@ import com.Abdelwahab.RoomBooking.repository.MaintananceBlockRepository;
 import com.Abdelwahab.RoomBooking.repository.RoomRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Takes physical rooms in and out of service for maintenance, keeping the sellable
@@ -37,6 +38,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MaintenanceService {
 
     private final MaintananceBlockRepository maintenanceBlockRepository;
@@ -92,6 +94,9 @@ public class MaintenanceService {
                 .reason(request.reason())
                 .build());
 
+        log.info("Maintenance block created [blockId={} roomId={} roomNumber={} {}→{}]",
+                block.getId(), room.getId(), room.getRoomNumber(),
+                request.startDate(), request.endDate());
         return toDTO(block);
     }
 
@@ -115,6 +120,8 @@ public class MaintenanceService {
                 block.getRoom().getRoomType(), block.getStartDate(), block.getEndDate());
 
         maintenanceBlockRepository.delete(block);
+        log.info("Maintenance block lifted and capacity restored [blockId={} roomId={} {}→{}]",
+                blockId, block.getRoom().getId(), block.getStartDate(), block.getEndDate());
     }
 
     private MaintenanceBlockResponseDTO toDTO(MaintenanceBlock block) {
