@@ -81,10 +81,18 @@ codebase:
   Authority comes from the database (the `Guest` row), not from a claim in the
   token.
 
-> Note: there is currently **no `CorsConfiguration` bean** in the codebase. If a
-> browser SPA on another origin is added, a credentialed CORS setup
-> (`allowCredentials(true)` + explicit origins, never `*`) must be introduced for
-> the cookie to be sent — tracked in §6.
+> Note: CORS is configured via a `CorsConfigurationSource` bean in `SecurityConfig`,
+> with allowed origins externalized to `${CORS_ALLOWED_ORIGINS}`. `allowCredentials(true)`
+> is set with explicit origins (never `*`) so the JWT cookie is sent cross-origin.
+
+- **Auth rate limiting.** `RateLimitFilter` sits in the security chain ahead of the
+  credential check and throttles `POST /api/auth/login` and `/register` per client
+  IP, using a Redis fixed-window counter in `RateLimitService` (`INCR` + first-hit
+  `EXPIRE`, default 10 attempts / 60s, externalized to `${RATE_LIMIT_AUTH_*}`).
+  Excess attempts get `429` with a `Retry-After` header and the standard
+  `ErrorResponse` body. It **fails open** — the deliberate inverse of the revocation
+  gate — because a Redis outage must throttle nobody rather than lock everybody out
+  of login. The submitted credentials are never logged.
 
 ### Concurrency & data integrity
 Two independent race conditions are handled with two different locks, deliberately:
@@ -120,7 +128,7 @@ Two independent race conditions are handled with two different locks, deliberate
   `ApplicationContext` is created. Repository tests, controller tests, and the Redis
   revocation integration test all extend this base — no H2, no mocks for the DB or
   cache layer.
-- **147 tests across 23 test files**, covering unit, repository, controller, security,
+- **152 tests across 25 test files**, covering unit, repository, controller, security,
   and concurrency scenarios.
 
 ### Error handling & web contracts
@@ -219,9 +227,11 @@ lifecycle transitions) and is the reference for endpoint-level documentation.
 An honest ledger of current trade-offs. Security-specific gaps are expanded in
 [SECURITY.md §9](SECURITY.md); this is the system-level view.
 
-- **No CORS configuration.** Fine for same-origin/non-browser clients; a
-  cross-origin SPA cannot send the credentialed cookie until a proper CORS bean
-  exists (explicit origins + `allowCredentials(true)`, never `*` with credentials).
+- **Rate limiter trusts `X-Forwarded-For`.** The per-IP auth throttle reads the
+  first `X-Forwarded-For` hop, which a client can spoof unless a trusted proxy that
+  rewrites the header sits in front. Acceptable for the current abuse-capping goal;
+  a production deployment behind an untrusted network should pin the limiter to the
+  socket address or a proxy-verified client IP.
 - **`Secure` cookie on local HTTP.** The cookie is always `Secure`, so it won't be
   sent over plain `http://localhost`; local testing needs HTTPS or a profile
   override.

@@ -9,3 +9,11 @@ spring:
     active: dev # Default to dev profile
   config:
     import: optional:file:.env[.properties]
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+  rate-limit:
+    auth:
+      max-attempts: ${RATE_LIMIT_AUTH_MAX:10}
+      window-seconds: ${RATE_LIMIT_AUTH_WINDOW:60}

@@ -532,6 +532,7 @@ What the current design stops, and how:
 | **Sign-up-as-admin** | Hard-wired `ROLE_USER` | No code path sets admin except the DB seed (§6). |
 | **IDOR (acting on others' bookings)** | Ownership checks | Email-vs-owner comparison in services (§6). |
 | **Brute-forcing stored passwords** | BCrypt | Adaptive, salted, slow (§7). |
+| **Online credential stuffing / login brute-force** | Per-IP rate limit | `RateLimitFilter` caps `POST /api/auth/login` and `/register` per client IP via a Redis fixed-window counter (default 10/60s), returning `429` before the credential check. Fails open on Redis outage (§9). |
 | **Stale privileges after demotion** | DB reload per request | Authorities reflect the current row, not the token (§6). |
 | **Multi-device session after ban** | Global user-level revocation | Admin ban writes `blacklist:user:<id>` in Redis; filter rejects all existing tokens for that user (§3). |
 | **New login after ban** | `Guest.banned` DB flag | `isAccountNonLocked()` returns `false`; `DaoAuthenticationProvider` throws `LockedException` (→ 401) before password check (§6). |
@@ -565,6 +566,13 @@ Honest list — none are hidden, and several are the project's natural next step
 4. **`login()` uses a bare `.orElseThrow()`** with no message when re-fetching the
    guest. Harmless (auth already succeeded) but yields an opaque 500 if it ever
    fires. **Fix:** throw a descriptive exception.
+
+5. **Rate limiter trusts `X-Forwarded-For`.** `RateLimitFilter` keys on the first
+   `X-Forwarded-For` hop if present, which a direct client can spoof. Acceptable
+   behind a trusted proxy that rewrites the header; if deployed where clients reach
+   the app directly or via an untrusted proxy, the limiter should read
+   `request.getRemoteAddr()` only. **Fix:** add a `trust-proxy` config flag and
+   conditionally read the socket address.
 ---
 
 ## 10. Change-this-here reference

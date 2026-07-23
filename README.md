@@ -36,6 +36,10 @@ role-based and ownership-scoped authorization, and **server-side token revocatio
 - **Server-side token revocation** — a two-tier Redis blacklist invalidates tokens
   before they expire: a per-token entry (logout) and a per-user entry (password
   change, admin ban) that revokes every device at once.
+- **Auth rate limiting** — `POST /api/auth/login` and `/register` are throttled
+  per client IP with a Redis fixed-window counter (default 10 attempts / 60s),
+  returning `429 Too Many Requests` with a `Retry-After` header. Fails open: a
+  Redis outage never locks users out of login.
 - **Observability** — structured logging with per-request MDC tracing
   (`requestId` / `traceId` / `userId`), a human-readable console in dev and ECS JSON
   in prod, and an `X-Request-Id` response header for client-to-log correlation.
@@ -132,7 +136,7 @@ The full route list, required roles, payloads, and status codes are in
 ./mvnw test
 ```
 
-The suite (147 tests) combines three strategies:
+The suite (152 tests) combines three strategies:
 - **Mockito unit tests** for service business logic in isolation.
 - **`@DataJpaTest` slice tests** for repositories against a **Testcontainers
   PostgreSQL** database — including a real two-thread test proving the pessimistic
@@ -199,7 +203,8 @@ src/main/java/com/Abdelwahab/RoomBooking/
 ## Known limitations
 
 Tracked honestly in the [technical-debt ledger](docs/ARCHITECTURE.md#6-known-technical-debt--next-steps).
-Highlights: there is no CORS configuration yet, and payment is a state transition
-rather than a real gateway integration.
+Highlights: payment is a state transition rather than a real gateway integration,
+and the auth rate limiter trusts the first `X-Forwarded-For` hop, so it needs a
+trusted proxy in front to be spoof-resistant.
 Interactive API docs (SpringDoc/OpenAPI) are deferred pending Spring Boot 4 / Spring 7
 compatibility; until then, [docs/API.md](docs/API.md) is the endpoint reference.
